@@ -610,11 +610,15 @@ function scoreRT(stats, skew, raw) {
 function scoreSpatial(stats, raw) {
   if (raw.length < 2) return 0.3;
   let s = 0;
-  // Touch with larger targets: natural offset up to 55px
-  // Desktop with mouse: tighter, up to 35px
-  const maxNatural = S.isTouch ? 55 : 40;
-  if (stats.mean > 2 && stats.mean < maxNatural) s += 0.4;
-  if (stats.std > 1.5 && stats.std < 30) s += 0.35;
+  if (S.isTouch) {
+    // Slide mode: hits register at target edge, so high offsets are expected and normal
+    // What matters: variance (are you consistently hitting the same zone?) and not-zero
+    if (stats.mean > 2) s += 0.45; // just need to have moved to target, not teleported
+    if (stats.std > 0.5 && stats.std < 30) s += 0.30;
+  } else {
+    if (stats.mean > 2 && stats.mean < 40) s += 0.4;
+    if (stats.std > 1.5 && stats.std < 30) s += 0.35;
+  }
   const perfectHits = raw.filter(d => d < 2).length;
   if (perfectHits > raw.length * 0.5) s *= 0.4;
   s += 0.25;
@@ -669,12 +673,16 @@ function scoreTremor(result) {
 function scorePathK(k) {
   if (!k || !k.hasData) return 0.2;
   let s = 0;
+  // Movement complexity (jerk, curvature, speed variance)
   s += Math.min(0.25, k.movementComplexity * 0.8);
-  if (k.approachDecelRate > 0.25) s += 0.2;
-  else if (k.approachDecelRate > 0.1) s += 0.1;
-  if (k.idleDrift > 0.05 && k.idleDrift < 5) s += 0.2;
-  if (k.n > 200) s += 0.15;
-  else if (k.n > 50) s += 0.08;
+  // Approach deceleration (harder to detect on touch at low sample rate)
+  if (k.approachDecelRate > 0.15) s += 0.2;
+  else if (k.approachDecelRate > 0) s += 0.1;
+  // Any idle drift > 0 is human signal (bots don't drift between targets)
+  if (k.idleDrift > 0.01) s += 0.2;
+  // Path richness — more points = more signal
+  if (k.n > 150) s += 0.15;
+  else if (k.n > 50) s += 0.10;
   return Math.min(1, s + 0.15);
 }
 
