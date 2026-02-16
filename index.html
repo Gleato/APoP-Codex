@@ -223,12 +223,15 @@ function analyzeSession() {
   const misses = cues.filter(c => !c.hit);
 
   // 1. Reaction time analysis
-  const reactionTimes = hits.map(c => c.reactionMs).filter(r => r > 0);
+  // In slide mode, sub-100ms "reactions" mean finger was already near target — filter these
+  const allRTs = hits.map(c => c.reactionMs).filter(r => r > 0);
+  const reactionTimes = allRTs.filter(r => r >= 100); // true reactions
+  const proximityHits = allRTs.filter(r => r < 100).length; // finger was already there
   const rtStats = computeStats(reactionTimes);
   // Human RT is typically 200-400ms with right skew
   // Bots produce near-zero or perfectly consistent RT
   const rtSkewness = reactionTimes.length >= 5 ? skewness(reactionTimes) : 0;
-  const rtIsHuman = rtStats.mean > 120 && rtStats.mean < 800 && rtStats.std > 15 && rtStats.std < 200;
+  const rtIsHuman = rtStats.mean > 100 && rtStats.mean < 1200 && rtStats.std > 15;
 
   // 2. Spatial accuracy analysis  
   const hitDistances = hits.map(c => c.dist);
@@ -237,14 +240,15 @@ function analyzeSession() {
   // Bots hit dead center or have artificial jitter
   const spatialVariance = distStats.std > 2 && distStats.mean > 3 && distStats.mean < 50;
 
-  // 3. Inter-tap interval analysis (rhythm drift)
-  const tapTimes = taps.map(t => t.ts);
+  // 3. Inter-arrival interval analysis (rhythm drift)
+  // Use arrival timestamps at cue targets, not raw tap events
+  const arrivalTimes = hits.map(c => c.hitTs).filter(t => t > 0).sort((a,b) => a - b);
   const intervals = [];
-  for (let i = 1; i < tapTimes.length; i++) intervals.push(tapTimes[i] - tapTimes[i-1]);
+  for (let i = 1; i < arrivalTimes.length; i++) intervals.push(arrivalTimes[i] - arrivalTimes[i-1]);
   const itiStats = computeStats(intervals);
   // Humans have irregular inter-tap intervals; bots tend toward regularity
   const itiCv = itiStats.mean > 0 ? itiStats.std / itiStats.mean : 0; // coefficient of variation
-  const rhythmNatural = itiCv > 0.15 && itiCv < 1.5;
+  const rhythmNatural = itiCv > 0.10 && itiCv < 1.5;
 
   // 4. Approach trajectory analysis
   const approachAnalysis = analyzeApproaches(hits);
@@ -520,7 +524,7 @@ function analyzeTremor(motion) {
   const hz = 1000 / avgMs;
 
   // 6-12 Hz band (stay below Nyquist for 60Hz sampling)
-  const minLag = Math.max(2, Math.floor(hz / 12));
+  const minLag = Math.max(2, Math.ceil(hz / 12));
   const maxLag = Math.min(Math.floor(vals.length / 2), Math.floor(hz / 6));
   if (minLag >= maxLag) return { found: false, note: 'Sample rate too low for tremor band', sampleHz: +hz.toFixed(1), n: series.length };
 
@@ -535,7 +539,7 @@ function analyzeTremor(motion) {
   return {
     found: true, freq: +best.f.toFixed(2), corr: +best.c.toFixed(4),
     sampleHz: +hz.toFixed(1), n: series.length,
-    band: 'physiological tremor (6-14Hz)',
+    band: '6-12Hz',
   };
 }
 
@@ -556,20 +560,18 @@ function analyzePressure(taps) {
 
 // === SCORING FUNCTIONS (0-1 scale) ===
 function scoreRT(stats, skew, raw) {
-  if (raw.length < 3) return 0.2;
-  // Ideal: mean 180-450ms, std 30-150ms, positive skew
+  if (raw.length < 2) return 0.25;
   let s = 0;
-  if (stats.mean > 120 && stats.mean < 600) s += 0.35;
-  else if (stats.mean > 50 && stats.mean < 800) s += 0.15;
-  if (stats.std > 20 && stats.std < 180) s += 0.30;
-  else if (stats.std > 5) s += 0.10;
-  if (skew > -0.5 && skew < 3.0) s += 0.20; // humans typically right-skewed
-  // Penalty for suspiciously low variance
+  // Slide mode has wider RT range (visual search + motor planning + travel)
+  if (stats.mean > 150 && stats.mean < 900) s += 0.35;
+  else if (stats.mean > 80 && stats.mean < 1200) s += 0.15;
+  if (stats.std > 20 && stats.std < 250) s += 0.30;
+  else if (stats.std > 8) s += 0.10;
+  if (skew > -1.0 && skew < 3.0) s += 0.20;
   if (stats.std < 5) s *= 0.3;
-  // Penalty for impossibly fast reactions
   const tooFast = raw.filter(r => r < 80).length;
   if (tooFast > raw.length * 0.3) s *= 0.4;
-  s += 0.15; // baseline
+  s += 0.15;
   return Math.min(1, s);
 }
 
@@ -587,19 +589,18 @@ function scoreSpatial(stats, raw) {
 }
 
 function scoreRhythm(stats, cv, raw) {
-  if (raw.length < 3) return 0.3;
+  if (raw.length < 2) return 0.35;
   let s = 0;
-  // Natural: cv > 0.2 (20% variation in inter-tap intervals)
-  if (cv > 0.15 && cv < 1.5) s += 0.45;
-  else if (cv > 0.05) s += 0.15;
+  if (cv > 0.10 && cv < 1.5) s += 0.45;
+  else if (cv > 0.05) s += 0.20;
   // Check for non-stationarity (rhythm drift over session)
-  if (raw.length >= 6) {
-    const firstThird = raw.slice(0, Math.floor(raw.length/3));
-    const lastThird = raw.slice(-Math.floor(raw.length/3));
-    const m1 = firstThird.reduce((a,b) => a+b, 0) / firstThird.length;
-    const m2 = lastThird.reduce((a,b) => a+b, 0) / lastThird.length;
+  if (raw.length >= 4) {
+    const firstHalf = raw.slice(0, Math.floor(raw.length/2));
+    const lastHalf = raw.slice(Math.floor(raw.length/2));
+    const m1 = firstHalf.reduce((a,b) => a+b, 0) / firstHalf.length;
+    const m2 = lastHalf.reduce((a,b) => a+b, 0) / lastHalf.length;
     const drift = Math.abs(m2 - m1) / Math.max(m1, 1);
-    if (drift > 0.05 && drift < 0.8) s += 0.25; // humans drift
+    if (drift > 0.05 && drift < 0.8) s += 0.25;
   }
   s += 0.2;
   return Math.min(1, s);
