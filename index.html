@@ -104,6 +104,7 @@ const APP = {
   scrollSamples: 0,
   sessionData: null,
   motionPermission: false,
+  bridge: null,
 };
 
 function getHoldDurationMs() {
@@ -490,6 +491,424 @@ function exportData() {
   URL.revokeObjectURL(url);
 }
 
+// ===== BIOBRIDGE PROTOTYPE =====
+function initBridgeState() {
+  return {
+    role: 'phone', // phone | desktop
+    code: '',
+    durationMs: 16000,
+    schedule: [],
+    capturing: false,
+    startTs: null,
+    endTs: null,
+    cueIndex: -1,
+    cueHits: 0,
+    cueMatched: {},
+    impulses: [],
+    pointer: [],
+    motion: [],
+    packet: null,
+    packetText: '',
+    peerPacketText: '',
+    comparison: null,
+    status: '',
+    rafId: null,
+    lastPointerTs: -1,
+    handlers: null,
+  };
+}
+
+function bridgeEnsureState() {
+  if (!APP.bridge) APP.bridge = initBridgeState();
+  return APP.bridge;
+}
+
+function bridgeHash(str) {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function bridgeRand(seedObj) {
+  seedObj.seed = (Math.imul(seedObj.seed, 1664525) + 1013904223) >>> 0;
+  return seedObj.seed / 4294967296;
+}
+
+function bridgeGenerateSchedule(code, durationMs) {
+  const seedObj = { seed: bridgeHash(code || 'APOP') };
+  const out = [];
+  let t = 1200;
+  while (t < durationMs - 900) {
+    out.push(Math.round(t));
+    const dt = 650 + Math.floor(bridgeRand(seedObj) * 900); // 0.65s to 1.55s
+    t += dt;
+  }
+  return out;
+}
+
+function detectBandPeriodicity(series, minFreq, maxFreq) {
+  const vals = series.map(s => s.val).filter(v => v !== null && v !== undefined && !isNaN(v));
+  if (vals.length < 30) return { found: false, note: `${vals.length} samples (need 30+)` };
+  const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+  const det = vals.map(v => v - mean);
+  const norm = det.reduce((a, b) => a + b * b, 0);
+  if (norm < 1e-12) return { found: false, note: 'No variance' };
+
+  const tsDiffs = [];
+  for (let i = 1; i < series.length; i++) tsDiffs.push(series[i].ts - series[i - 1].ts);
+  const avgMs = tsDiffs.reduce((a, b) => a + b, 0) / Math.max(tsDiffs.length, 1);
+  if (avgMs <= 0) return { found: false, note: 'Invalid sample interval' };
+  const hz = 1000 / avgMs;
+
+  const minLag = Math.max(2, Math.floor(hz / maxFreq));
+  const maxLag = Math.min(Math.floor(vals.length / 2), Math.floor(hz / minFreq));
+  if (minLag >= maxLag) return { found: false, note: 'Insufficient rate' };
+
+  let best = null;
+  for (let lag = minLag; lag <= maxLag; lag++) {
+    let c = 0;
+    for (let i = 0; i < det.length - lag; i++) c += det[i] * det[i + lag];
+    c /= norm;
+    const f = hz / lag;
+    if (!best || c > best.c) best = { lag, c, f };
+  }
+  if (!best || best.c < 0.08) return { found: false, note: 'No peak above threshold', sampleHz: hz.toFixed(1) };
+  return {
+    found: true,
+    freq: best.f.toFixed(3),
+    corr: best.c.toFixed(4),
+    lag: best.lag,
+    sampleHz: hz.toFixed(1),
+    band: `${minFreq}-${maxFreq}Hz`,
+  };
+}
+
+function makePointerSpeedSeries(points) {
+  const out = [];
+  for (let i = 1; i < points.length; i++) {
+    const dt = points[i].ts - points[i - 1].ts;
+    if (dt <= 1) continue;
+    const dx = points[i].x - points[i - 1].x;
+    const dy = points[i].y - points[i - 1].y;
+    const speed = Math.sqrt(dx * dx + dy * dy) / (dt / 1000);
+    out.push({ ts: points[i].ts, val: speed });
+  }
+  return out;
+}
+
+function makeEnvelope(impulses, durationMs, binMs) {
+  const bins = Math.max(1, Math.ceil(durationMs / binMs));
+  const env = new Array(bins).fill(0);
+  for (let i = 0; i < impulses.length; i++) {
+    const idx = Math.floor(impulses[i].ts / binMs);
+    if (idx >= 0 && idx < bins) env[idx] += 1;
+  }
+  return env;
+}
+
+function encodePacket(obj) {
+  return btoa(unescape(encodeURIComponent(JSON.stringify(obj))));
+}
+
+function decodePacket(text) {
+  const t = (text || '').trim();
+  if (!t) throw new Error('Empty packet');
+  if (t.startsWith('{')) return JSON.parse(t);
+  return JSON.parse(decodeURIComponent(escape(atob(t))));
+}
+
+function maxCrossCorr(a, b, maxLagBins) {
+  const n = Math.min(a.length, b.length);
+  if (n < 6) return { corr: 0, lagBins: 0 };
+  const x = a.slice(0, n);
+  const y = b.slice(0, n);
+  const mean = (arr) => arr.reduce((s, v) => s + v, 0) / arr.length;
+  const mx = mean(x), my = mean(y);
+  const sx = Math.sqrt(x.reduce((s, v) => s + (v - mx) ** 2, 0) / x.length);
+  const sy = Math.sqrt(y.reduce((s, v) => s + (v - my) ** 2, 0) / y.length);
+  if (sx < 1e-6 || sy < 1e-6) return { corr: 0, lagBins: 0 };
+  let best = { corr: -2, lagBins: 0 };
+  for (let lag = -maxLagBins; lag <= maxLagBins; lag++) {
+    let sum = 0, count = 0;
+    for (let i = 0; i < n; i++) {
+      const j = i + lag;
+      if (j < 0 || j >= n) continue;
+      sum += ((x[i] - mx) / sx) * ((y[j] - my) / sy);
+      count++;
+    }
+    if (count < 4) continue;
+    const c = sum / count;
+    if (c > best.corr) best = { corr: c, lagBins: lag };
+  }
+  return best.corr < -1 ? { corr: 0, lagBins: 0 } : best;
+}
+
+function compareBridgePackets(localPacket, peerPacket) {
+  if (!localPacket || !peerPacket) return { ok: false, note: 'Missing packet(s)' };
+  if (localPacket.code !== peerPacket.code) return { ok: false, note: 'Challenge code mismatch' };
+
+  const corr = maxCrossCorr(localPacket.envelope || [], peerPacket.envelope || [], 8);
+  const lagMs = corr.lagBins * 250;
+  const corrScore = Math.max(0, Math.min(1, (corr.corr - 0.1) / 0.5));
+  const lagScore = Math.max(0, 1 - (Math.abs(lagMs) / 2000));
+
+  let tremorScore = 0.2;
+  const a = localPacket.tremor;
+  const b = peerPacket.tremor;
+  if (a?.found && b?.found) {
+    const diff = Math.abs(parseFloat(a.freq) - parseFloat(b.freq));
+    tremorScore = Math.max(0, 1 - diff / 6);
+  } else if (a?.found || b?.found) {
+    tremorScore = 0.45;
+  }
+
+  const hitA = localPacket.cueHitRate || 0;
+  const hitB = peerPacket.cueHitRate || 0;
+  const challengeScore = Math.max(0, Math.min(hitA, hitB));
+
+  const impA = Math.max(1, localPacket.impulseCount || 0);
+  const impB = Math.max(1, peerPacket.impulseCount || 0);
+  const impulseBalance = Math.min(impA, impB) / Math.max(impA, impB);
+
+  const roleBonus = localPacket.role !== peerPacket.role ? 0.05 : 0;
+  const score =
+    50 * corrScore +
+    10 * lagScore +
+    15 * tremorScore +
+    15 * challengeScore +
+    10 * impulseBalance +
+    100 * roleBonus;
+
+  const final = Math.max(0, Math.min(100, score));
+  const verdict = final >= 75 ? 'Strong Coherence' : final >= 55 ? 'Moderate Coherence' : 'Weak Coherence';
+  return {
+    ok: true,
+    score: final.toFixed(1),
+    verdict,
+    envelopeCorr: corr.corr.toFixed(3),
+    lagMs,
+    tremorScore: tremorScore.toFixed(2),
+    challengeScore: challengeScore.toFixed(2),
+    impulseBalance: impulseBalance.toFixed(2),
+  };
+}
+
+function buildBridgePacket(b) {
+  const durationMs = Math.max(1, Math.round((b.endTs || 0) - (b.startTs || 0)));
+  const envelope = makeEnvelope(b.impulses, durationMs, 250);
+  const pointerSpeed = makePointerSpeedSeries(b.pointer);
+  const motionSeries = b.motion.map(m => ({ ts: m.ts, val: m.val }));
+  const pointerTremor = detectBandPeriodicity(pointerSpeed, 4, 14);
+  const motionTremor = detectBandPeriodicity(motionSeries, 4, 14);
+  const tremor = motionTremor.found ? { ...motionTremor, source: 'phone_motion' }
+    : pointerTremor.found ? { ...pointerTremor, source: 'pointer_speed' }
+      : { found: false, source: b.role === 'phone' ? 'phone_motion' : 'pointer_speed', note: 'No peak' };
+
+  const cueTotal = b.schedule.length;
+  const cueHitRate = cueTotal > 0 ? (b.cueHits / cueTotal) : 0;
+  return {
+    v: 1,
+    role: b.role,
+    code: b.code,
+    device: APP.deviceInfo?.deviceType || 'Unknown',
+    browser: APP.deviceInfo?.browser || 'Unknown',
+    createdAt: new Date().toISOString(),
+    durationMs,
+    cueTotal,
+    cueHits: b.cueHits,
+    cueHitRate: parseFloat(cueHitRate.toFixed(3)),
+    impulseCount: b.impulses.length,
+    envelope,
+    tremor,
+  };
+}
+
+function startBridgeMode() {
+  APP.bridge = initBridgeState();
+  APP.phase = 'bridge';
+  render();
+}
+
+function bridgeSetRole(role) {
+  const b = bridgeEnsureState();
+  if (b.capturing) return;
+  b.role = role === 'desktop' ? 'desktop' : 'phone';
+  render();
+}
+
+async function bridgeStartCapture() {
+  const b = bridgeEnsureState();
+  if (b.capturing) return;
+  const codeInput = document.getElementById('bridge-code');
+  const code = (codeInput?.value || b.code || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12);
+  if (code.length < 4) {
+    b.status = 'Use a shared challenge code with 4+ characters.';
+    render();
+    return;
+  }
+  b.code = code;
+  b.schedule = bridgeGenerateSchedule(b.code, b.durationMs);
+  b.capturing = true;
+  b.startTs = performance.now();
+  b.endTs = null;
+  b.cueHits = 0;
+  b.cueMatched = {};
+  b.cueIndex = -1;
+  b.impulses = [];
+  b.pointer = [];
+  b.motion = [];
+  b.packet = null;
+  b.packetText = '';
+  b.comparison = null;
+  b.status = '';
+  b.lastPointerTs = -1;
+
+  if (b.role === 'phone' && typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+    try { await DeviceMotionEvent.requestPermission(); } catch {}
+  }
+
+  const pulseWindowMs = 350;
+  function markImpulse(type, nowRel) {
+    b.impulses.push({ ts: nowRel, type });
+    for (let i = 0; i < b.schedule.length; i++) {
+      if (b.cueMatched[i]) continue;
+      if (Math.abs(nowRel - b.schedule[i]) <= pulseWindowMs) {
+        b.cueMatched[i] = true;
+        b.cueHits++;
+        break;
+      }
+    }
+  }
+
+  const onPointerMove = (e) => {
+    if (!b.capturing) return;
+    const t = performance.now() - b.startTs;
+    if (t - b.lastPointerTs < 8) return;
+    b.lastPointerTs = t;
+    b.pointer.push({ ts: t, x: e.clientX, y: e.clientY });
+  };
+  const onPointerDown = () => {
+    if (!b.capturing) return;
+    markImpulse('ptr_down', performance.now() - b.startTs);
+  };
+  const onTouchStart = () => {
+    if (!b.capturing) return;
+    markImpulse('touch_start', performance.now() - b.startTs);
+  };
+  const onWheel = () => {
+    if (!b.capturing) return;
+    markImpulse('wheel', performance.now() - b.startTs);
+  };
+  const onKeyDown = () => {
+    if (!b.capturing) return;
+    markImpulse('key', performance.now() - b.startTs);
+  };
+  const onMotion = (e) => {
+    if (!b.capturing) return;
+    const r = e.rotationRate || {};
+    const a = e.accelerationIncludingGravity || {};
+    const magR = Math.sqrt((r.alpha || 0) ** 2 + (r.beta || 0) ** 2 + (r.gamma || 0) ** 2);
+    const magA = Math.sqrt((a.x || 0) ** 2 + (a.y || 0) ** 2 + (a.z || 0) ** 2);
+    b.motion.push({ ts: performance.now() - b.startTs, val: magR > 0 ? magR : magA });
+  };
+
+  document.addEventListener('pointermove', onPointerMove, { passive: true });
+  document.addEventListener('pointerdown', onPointerDown, { passive: true });
+  document.addEventListener('touchstart', onTouchStart, { passive: true });
+  document.addEventListener('wheel', onWheel, { passive: true });
+  document.addEventListener('keydown', onKeyDown, { passive: true });
+  window.addEventListener('devicemotion', onMotion);
+  b.handlers = { onPointerMove, onPointerDown, onTouchStart, onWheel, onKeyDown, onMotion };
+
+  render();
+
+  function stopCapture() {
+    if (!b.capturing) return;
+    b.capturing = false;
+    b.endTs = performance.now();
+    if (b.handlers) {
+      document.removeEventListener('pointermove', b.handlers.onPointerMove);
+      document.removeEventListener('pointerdown', b.handlers.onPointerDown);
+      document.removeEventListener('touchstart', b.handlers.onTouchStart);
+      document.removeEventListener('wheel', b.handlers.onWheel);
+      document.removeEventListener('keydown', b.handlers.onKeyDown);
+      window.removeEventListener('devicemotion', b.handlers.onMotion);
+      b.handlers = null;
+    }
+    b.packet = buildBridgePacket(b);
+    b.packetText = encodePacket(b.packet);
+    cancelAnimationFrame(b.rafId);
+    b.rafId = null;
+    render();
+  }
+
+  function tick() {
+    if (!b.capturing) return;
+    const elapsed = performance.now() - b.startTs;
+    let idx = -1;
+    for (let i = 0; i < b.schedule.length; i++) {
+      if (elapsed >= b.schedule[i]) idx = i;
+      else break;
+    }
+    b.cueIndex = idx;
+    const cueEl = document.getElementById('bridge-cue');
+    const timerEl = document.getElementById('bridge-timer');
+    const hitsEl = document.getElementById('bridge-hits');
+    if (timerEl) timerEl.textContent = `${Math.max(0, ((b.durationMs - elapsed) / 1000)).toFixed(1)}s`;
+    if (hitsEl) hitsEl.textContent = `${b.cueHits}/${b.schedule.length}`;
+    if (cueEl) {
+      const active = idx >= 0 && elapsed - b.schedule[idx] < 220;
+      cueEl.style.transform = active ? 'scale(1.1)' : 'scale(1.0)';
+      cueEl.style.background = active ? 'rgba(16,185,129,0.35)' : 'rgba(59,130,246,0.14)';
+      cueEl.style.borderColor = active ? 'rgba(16,185,129,0.7)' : 'rgba(59,130,246,0.35)';
+    }
+    if (elapsed >= b.durationMs) {
+      stopCapture();
+      return;
+    }
+    b.rafId = requestAnimationFrame(tick);
+  }
+  b.rafId = requestAnimationFrame(tick);
+}
+
+function bridgeCompareWithPeer() {
+  const b = bridgeEnsureState();
+  if (!b.packet) {
+    b.status = 'Run a capture first.';
+    render();
+    return;
+  }
+  const peerText = (document.getElementById('bridge-peer')?.value || b.peerPacketText || '').trim();
+  b.peerPacketText = peerText;
+  try {
+    const peer = decodePacket(peerText);
+    b.comparison = compareBridgePackets(b.packet, peer);
+    b.status = '';
+  } catch (err) {
+    b.comparison = null;
+    b.status = `Could not parse peer packet: ${err?.message || 'Invalid format'}`;
+  }
+  render();
+}
+
+function bridgeReset() {
+  const b = bridgeEnsureState();
+  if (b.capturing && b.handlers) {
+    document.removeEventListener('pointermove', b.handlers.onPointerMove);
+    document.removeEventListener('pointerdown', b.handlers.onPointerDown);
+    document.removeEventListener('touchstart', b.handlers.onTouchStart);
+    document.removeEventListener('wheel', b.handlers.onWheel);
+    document.removeEventListener('keydown', b.handlers.onKeyDown);
+    window.removeEventListener('devicemotion', b.handlers.onMotion);
+    cancelAnimationFrame(b.rafId);
+  }
+  APP.bridge = initBridgeState();
+  render();
+}
+
 // ===== RENDERING =====
 function render() {
   const app = document.getElementById('app');
@@ -534,7 +953,81 @@ function render() {
         </p>
         
         <button class="btn primary" onclick="startSession()">Begin Capture</button>
+        <button class="btn ghost small" style="margin-top:10px" onclick="startBridgeMode()">BioBridge Prototype</button>
         <p style="font-size:11px;color:#4b5563;margin-top:14px;max-width:260px">~30 seconds total. Two phases.</p>
+      </div>
+    `;
+  }
+
+  else if (APP.phase === 'bridge') {
+    const b = bridgeEnsureState();
+    const rolePhone = b.role === 'phone';
+    const roleDesktop = b.role === 'desktop';
+    const score = b.comparison?.score ? parseFloat(b.comparison.score) : null;
+    const scoreColor = score === null ? '#8b95a1' : score >= 75 ? '#34d399' : score >= 55 ? '#60a5fa' : '#f59e0b';
+    const packetPreview = b.packetText || '';
+    app.innerHTML = `
+      <div class="screen top" style="overflow-y:auto;justify-content:flex-start;padding-top:24px;padding-bottom:60px">
+        <div class="phase-label">Experimental</div>
+        <h2>BioBridge Coherence Proof</h2>
+        <p class="sub" style="margin-bottom:14px">Run on phone and computer with the same code, then paste packets to compare cross-device coherence.</p>
+
+        <div class="card" style="max-width:380px">
+          <div class="card-label">Role</div>
+          <div class="mode-toggle" style="margin:6px 0 0;max-width:320px">
+            <button class="${rolePhone ? 'active' : ''}" onclick="bridgeSetRole('phone')">Phone</button>
+            <button class="${roleDesktop ? 'active' : ''}" onclick="bridgeSetRole('desktop')">Computer</button>
+          </div>
+          <div style="margin-top:10px">
+            <input id="bridge-code" value="${b.code}" placeholder="Shared challenge code (e.g. APOP42)" style="width:100%;padding:10px 12px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#d1d5db;font-size:13px;text-transform:uppercase"/>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+            <button class="btn primary small" onclick="bridgeStartCapture()" ${b.capturing ? 'disabled' : ''}>${b.capturing ? 'Capturing...' : 'Start 16s Capture'}</button>
+            <button class="btn ghost small" onclick="bridgeReset()">Reset</button>
+            <button class="btn ghost small" onclick="APP.phase='intro';render()">Back</button>
+          </div>
+          ${b.status ? `<div style="font-size:11px;color:#f59e0b;margin-top:8px">${b.status}</div>` : ''}
+        </div>
+
+        ${b.capturing ? `
+        <div class="card" style="max-width:380px;text-align:center">
+          <div id="bridge-cue" style="width:110px;height:110px;border-radius:50%;margin:6px auto 12px;border:2px solid rgba(59,130,246,0.35);background:rgba(59,130,246,0.14);transition:all .12s ease"></div>
+          <div style="font-size:12px;color:#8b95a1">Interact when it pulses (tap/click/scroll/keypress)</div>
+          <div style="display:flex;justify-content:space-between;margin-top:10px;font-size:12px">
+            <span style="color:#5b6b7d">Time Left</span><span id="bridge-timer" style="color:#d1d5db;font-family:monospace">16.0s</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:12px">
+            <span style="color:#5b6b7d">Cue Hits</span><span id="bridge-hits" style="color:#d1d5db;font-family:monospace">0/${b.schedule.length}</span>
+          </div>
+        </div>` : ''}
+
+        ${b.packet ? `
+        <div class="card" style="max-width:380px">
+          <div class="card-label">Local Packet</div>
+          <div style="font-size:11px;color:#8b95a1;line-height:1.5;margin-bottom:8px">
+            Role: ${b.packet.role} · impulses: ${b.packet.impulseCount} · cue hit rate: ${(b.packet.cueHitRate * 100).toFixed(1)}% · tremor: ${b.packet.tremor?.found ? `${b.packet.tremor.freq}Hz (${b.packet.tremor.source})` : 'not found'}
+          </div>
+          <textarea readonly style="width:100%;min-height:96px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#9ca3af;padding:8px;font-size:11px;line-height:1.4">${packetPreview}</textarea>
+        </div>
+
+        <div class="card" style="max-width:380px">
+          <div class="card-label">Peer Packet</div>
+          <textarea id="bridge-peer" placeholder="Paste packet from the other device" style="width:100%;min-height:96px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#d1d5db;padding:8px;font-size:11px;line-height:1.4">${b.peerPacketText || ''}</textarea>
+          <div style="margin-top:10px"><button class="btn success small" onclick="bridgeCompareWithPeer()">Compare Coherence</button></div>
+        </div>` : ''}
+
+        ${b.comparison ? `
+        <div class="card" style="max-width:380px">
+          <div class="card-label">Coherence Result</div>
+          ${b.comparison.ok ? `
+          <div style="font-size:28px;font-weight:700;color:${scoreColor}">${b.comparison.score}</div>
+          <div style="font-size:12px;color:${scoreColor};font-weight:600;margin-top:2px">${b.comparison.verdict}</div>
+          <div style="font-size:11px;color:#8b95a1;line-height:1.55;margin-top:8px">
+            Envelope corr: ${b.comparison.envelopeCorr} · Lag: ${b.comparison.lagMs} ms<br/>
+            Tremor match: ${b.comparison.tremorScore} · Challenge sync: ${b.comparison.challengeScore} · Impulse balance: ${b.comparison.impulseBalance}
+          </div>`
+          : `<div style="font-size:12px;color:#f59e0b">${b.comparison.note}</div>`}
+        </div>` : ''}
       </div>
     `;
   }
@@ -890,6 +1383,11 @@ window.startSession = startSession;
 window.finishSession = finishSession;
 window.resetSession = resetSession;
 window.exportData = exportData;
+window.startBridgeMode = startBridgeMode;
+window.bridgeSetRole = bridgeSetRole;
+window.bridgeStartCapture = bridgeStartCapture;
+window.bridgeCompareWithPeer = bridgeCompareWithPeer;
+window.bridgeReset = bridgeReset;
 window.APP = APP;
 window.render = render;
 
@@ -903,4 +1401,3 @@ document.addEventListener('DOMContentLoaded', () => {
 </script>
 </body>
 </html>
-
