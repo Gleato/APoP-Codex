@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>APoP Signal Capture</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { 
+    height: 100%; overflow: hidden; touch-action: none;
+    background: #0a0a0f; color: #e0e6ed;
+    font-family: -apple-system, 'Helvetica Neue', sans-serif;
+  }
+  #app { height: 100%; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  
+  .screen { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; text-align: center; }
+  .screen.top { justify-content: flex-start; padding-top: 40px; }
+  
+  h1 { font-size: 26px; font-weight: 700; color: #f0f4f8; letter-spacing: -0.02em; }
+  h2 { font-size: 20px; font-weight: 600; color: #c9d1d9; }
+  .sub { font-size: 13px; color: #6b7b8d; line-height: 1.6; max-width: 300px; margin: 8px auto 0; }
+  .phase-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #5b6b7d; margin-bottom: 6px; }
+  
+  .card { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07); border-radius: 10px; padding: 16px; margin-bottom: 12px; width: 100%; max-width: 360px; text-align: left; }
+  .card.warn { background: rgba(245,158,11,0.06); border-color: rgba(245,158,11,0.15); }
+  .card-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #5b6b7d; margin-bottom: 6px; }
+  
+  .tag { font-size: 10px; padding: 2px 8px; border-radius: 4px; display: inline-block; margin-right: 4px; margin-top: 4px; }
+  .tag.blue { background: rgba(59,130,246,0.12); color: #60a5fa; }
+  .tag.green { background: rgba(16,185,129,0.12); color: #34d399; }
+  .tag.purple { background: rgba(168,85,247,0.12); color: #a78bfa; }
+  .tag.dim { background: rgba(255,255,255,0.04); color: #4b5563; }
+  
+  .btn { padding: 14px 36px; font-size: 15px; font-weight: 600; border: none; border-radius: 10px; cursor: pointer; -webkit-user-select: none; user-select: none; }
+  .btn.primary { background: linear-gradient(135deg, #3b82f6, #2563eb); color: #fff; box-shadow: 0 4px 20px rgba(59,130,246,0.3); }
+  .btn.success { background: linear-gradient(135deg, #10b981, #059669); color: #fff; box-shadow: 0 4px 20px rgba(16,185,129,0.25); }
+  .btn.ghost { background: rgba(255,255,255,0.06); color: #c9d1d9; border: 1px solid rgba(255,255,255,0.1); }
+  .btn.small { padding: 10px 20px; font-size: 13px; }
+  
+  .mode-toggle { display: flex; gap: 4px; background: rgba(255,255,255,0.04); border-radius: 8px; padding: 3px; margin: 16px auto; }
+  .mode-toggle button { flex: 1; padding: 8px 12px; font-size: 12px; font-weight: 600; border: none; border-radius: 6px; cursor: pointer; color: #6b7b8d; background: transparent; transition: all 0.2s; }
+  .mode-toggle button.active { background: rgba(59,130,246,0.15); color: #60a5fa; }
+  
+  .touch-zone { 
+    width: 200px; height: 200px; border-radius: 50%; position: relative;
+    display: flex; align-items: center; justify-content: center;
+    touch-action: none; -webkit-user-select: none; user-select: none;
+  }
+  
+  .live-bar { display: flex; justify-content: space-between; font-size: 12px; width: 100%; max-width: 360px; }
+  .live-bar .label { color: #5b6b7d; }
+  .live-bar .val { color: #c9d1d9; font-family: 'SF Mono', 'Menlo', monospace; font-weight: 600; }
+  .live-bar .val.blue { color: #60a5fa; }
+  
+  .stat-grid { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 6px; margin-bottom: 10px; }
+  .stat-grid .stat-label { font-size: 9px; color: #4b5563; text-transform: uppercase; }
+  .stat-grid .stat-val { font-size: 12px; font-weight: 600; color: #d1d5db; font-family: 'SF Mono', monospace; }
+  
+  .channel-card { margin-bottom: 12px; }
+  .channel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .channel-title { font-size: 13px; font-weight: 600; color: #c9d1d9; }
+  
+  .tier-box { border-radius: 12px; padding: 16px; margin-bottom: 16px; text-align: center; width: 100%; max-width: 360px; }
+  .tier-box.t1 { background: rgba(16,185,129,0.06); border: 1px solid rgba(16,185,129,0.15); }
+  .tier-box.t2 { background: rgba(59,130,246,0.06); border: 1px solid rgba(59,130,246,0.15); }
+  .tier-box.t3 { background: rgba(245,158,11,0.06); border: 1px solid rgba(245,158,11,0.15); }
+  
+  .results-scroll { width: 100%; max-width: 380px; padding: 0 10px; }
+  
+  pre.data { font-size: 9px; color: #6b7b8d; font-family: 'SF Mono', monospace; line-height: 1.5; white-space: pre-wrap; word-break: break-all; }
+  
+  .freeform-content { 
+    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); 
+    border-radius: 12px; padding: 20px; margin-bottom: 16px; 
+    line-height: 1.7; font-size: 13px; color: #7b8794;
+    max-width: 360px; text-align: left;
+    max-height: 200px; overflow-y: auto; touch-action: pan-y;
+  }
+  .tap-buttons { display: flex; gap: 8px; margin: 12px 0; flex-wrap: wrap; justify-content: center; }
+  .tap-buttons button { padding: 10px 18px; background: rgba(59,130,246,0.08); border: 1px solid rgba(59,130,246,0.15); border-radius: 8px; color: #60a5fa; font-size: 13px; cursor: pointer; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+const APP = {
+  phase: 'intro',
+  recording: false,
+  holdMode: 'circle', // 'circle' or 'still'
+  holdProgress: 0,
+  holdComplete: false,
+  holdActive: false,
+  touchData: [],
+  motionData: [],
+  deviceInfo: null,
+  sessionStart: null,
+  holdStart: null,
+  animFrame: null,
+  liveSamples: 0,
+  liveRx: null,
+  tapCount: 0,
+  scrollSamples: 0,
+  sessionData: null,
+  motionPermission: false,
+};
+
+// ===== DEVICE DETECTION =====
+function detectDevice() {
+  const ua = navigator.userAgent.toLowerCase();
+  const info = {
+    userAgent: navigator.userAgent,
+    platform: navigator.platform,
+    maxTouchPoints: navigator.maxTouchPoints || 0,
+    hasTouch: 'ontouchstart' in window,
+    hasDeviceMotion: 'DeviceMotionEvent' in window,
+    hasPointerEvents: 'PointerEvent' in window,
+    screenWidth: window.screen.width,
+    screenHeight: window.screen.height,
+    pixelRatio: window.devicePixelRatio,
+    timestamp: Date.now(),
+    browser: /safari/.test(ua) && !/chrome/.test(ua) ? 'Safari' : /chrome/.test(ua) ? 'Chrome' : /firefox/.test(ua) ? 'Firefox' : 'Other',
+  };
+  if (/iphone/.test(ua)) info.deviceType = 'iPhone';
+  else if (/ipad/.test(ua)) info.deviceType = 'iPad';
+  else if (/android/.test(ua) && /mobile/.test(ua)) info.deviceType = 'Android Phone';
+  else if (/android/.test(ua)) info.deviceType = 'Android Tablet';
+  else if (/macintosh/.test(ua)) info.deviceType = 'Mac';
+  else if (/windows/.test(ua)) info.deviceType = 'Windows PC';
+  else info.deviceType = 'Unknown';
+  APP.deviceInfo = info;
+}
+
+// ===== TOUCH CAPTURE =====
+function captureTouchEvent(e, eventType) {
+  if (!APP.recording) return;
+  const now = performance.now();
+  for (let i = 0; i < e.touches.length; i++) {
+    const t = e.touches[i];
+    APP.touchData.push({
+      ts: now, type: eventType, id: t.identifier,
+      x: t.clientX, y: t.clientY,
+      rx: t.radiusX, ry: t.radiusY,
+      rot: t.rotationAngle, f: t.force,
+      phase: APP.phase,
+    });
+  }
+  APP.liveSamples = APP.touchData.length;
+  if (e.touches.length > 0) APP.liveRx = e.touches[0].radiusX;
+}
+
+// Also capture pointer events for comparison
+function capturePointerEvent(e, eventType) {
+  if (!APP.recording) return;
+  const now = performance.now();
+  APP.touchData.push({
+    ts: now, type: 'ptr_' + eventType, id: e.pointerId,
+    x: e.clientX, y: e.clientY,
+    rx: e.width, ry: e.height,
+    rot: 0, f: e.pressure,
+    tiltX: e.tiltX, tiltY: e.tiltY,
+    pointerType: e.pointerType,
+    phase: APP.phase,
+  });
+  APP.liveSamples = APP.touchData.length;
+}
+
+function captureMotion(e) {
+  if (!APP.recording) return;
+  const a = e.acceleration || {};
+  const ag = e.accelerationIncludingGravity || {};
+  const r = e.rotationRate || {};
+  APP.motionData.push({
+    ts: performance.now(),
+    ax: a.x, ay: a.y, az: a.z,
+    agx: ag.x, agy: ag.y, agz: ag.z,
+    ra: r.alpha, rb: r.beta, rg: r.gamma,
+    interval: e.interval, phase: APP.phase,
+  });
+}
+
+// ===== MOTION PERMISSION =====
+async function requestMotion() {
+  if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+    try {
+      const p = await DeviceMotionEvent.requestPermission();
+      APP.motionPermission = p === 'granted';
+    } catch { APP.motionPermission = false; }
+  } else {
+    APP.motionPermission = true;
+  }
+  if (APP.motionPermission) {
+    window.addEventListener('devicemotion', captureMotion);
+  }
+}
+
+// ===== ANALYSIS =====
+function analyze() {
+  const duration = (performance.now() - APP.sessionStart) / 1000;
+  const td = APP.touchData;
+  const md = APP.motionData;
+
+  // Separate touch API events from pointer API events
+  const touchEvents = td.filter(d => !d.type.startsWith('ptr_'));
+  const pointerEvents = td.filter(d => d.type.startsWith('ptr_'));
+  
+  const holdTouch = touchEvents.filter(d => d.phase === 'hold');
+  const holdPointer = pointerEvents.filter(d => d.phase === 'hold');
+  const holdTouchMoves = holdTouch.filter(d => d.type === 'touchmove');
+  const holdPtrMoves = holdPointer.filter(d => d.type.includes('move'));
+
+  const extract = (data, field) => data.map(d => ({ ts: d.ts, val: d[field] })).filter(s => s.val !== null && s.val !== undefined && !isNaN(s.val));
+
+  // Check rx/force mirroring
+  let rxForceMirrored = false;
+  if (holdTouch.length > 5) {
+    rxForceMirrored = holdTouch.filter(d => d.rx === d.f).length / holdTouch.length > 0.5;
+  }
+
+  function computeStats(series, name) {
+    if (series.length < 2) return { name, n: 0, hasVariance: false };
+    const vals = series.map(s => s.val);
+    const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+    const variance = vals.reduce((a, b) => a + (b - mean) ** 2, 0) / vals.length;
+    const std = Math.sqrt(variance);
+    const min = Math.min(...vals);
+    const max = Math.max(...vals);
+    const range = max - min;
+    const tsDiffs = [];
+    for (let i = 1; i < series.length; i++) tsDiffs.push(series[i].ts - series[i - 1].ts);
+    const avgInt = tsDiffs.length > 0 ? tsDiffs.reduce((a, b) => a + b, 0) / tsDiffs.length : 0;
+    const hz = avgInt > 0 ? 1000 / avgInt : 0;
+    const dur = series.length > 1 ? (series[series.length - 1].ts - series[0].ts) / 1000 : 0;
+    const uniqueCount = new Set(vals).size;
+    return { name, n: vals.length, mean: mean.toFixed(4), std: std.toFixed(6), min: min.toFixed(4), max: max.toFixed(4), range: range.toFixed(4), hz: hz.toFixed(1), dur: dur.toFixed(1), hasVariance: std > 0.0001, uniqueValues: uniqueCount };
+  }
+
+  function detectPeriodicity(series) {
+    const vals = series.map(s => s.val);
+    if (vals.length < 30) return { found: false, note: `${vals.length} samples (need 30+)` };
+    const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+    const det = vals.map(v => v - mean);
+    const norm = det.reduce((a, b) => a + b * b, 0);
+    if (norm < 1e-12) return { found: false, note: 'No variance' };
+
+    const tsDiffs = [];
+    for (let i = 1; i < series.length; i++) tsDiffs.push(series[i].ts - series[i - 1].ts);
+    const avgMs = tsDiffs.reduce((a, b) => a + b, 0) / tsDiffs.length;
+    const hz = 1000 / avgMs;
+
+    const minLag = Math.max(2, Math.floor(hz / 15));
+    const maxLag = Math.min(Math.floor(vals.length / 2), Math.floor(hz / 0.5));
+    if (minLag >= maxLag) return { found: false, note: 'Insufficient rate' };
+
+    const corrs = [];
+    for (let lag = minLag; lag <= maxLag; lag++) {
+      let c = 0;
+      for (let i = 0; i < det.length - lag; i++) c += det[i] * det[i + lag];
+      c /= norm;
+      corrs.push({ lag, c, f: hz / lag });
+    }
+
+    const peaks = [];
+    for (let i = 1; i < corrs.length - 1; i++) {
+      if (corrs[i].c > corrs[i-1].c && corrs[i].c > corrs[i+1].c && corrs[i].c > 0.06) {
+        peaks.push(corrs[i]);
+      }
+    }
+    peaks.sort((a, b) => b.c - a.c);
+    if (!peaks.length) return { found: false, note: 'No peaks above threshold' };
+
+    const best = peaks[0];
+    const band = best.f >= 0.5 && best.f <= 3.0 ? 'cardiac' : best.f >= 4 && best.f <= 15 ? 'tremor' : 'other';
+    return {
+      found: true, freq: best.f.toFixed(3), corr: best.c.toFixed(4), lag: best.lag, band,
+      bpm: band === 'cardiac' ? (best.f * 60).toFixed(0) : null,
+      allPeaks: peaks.slice(0, 5).map(p => ({ f: p.f.toFixed(2), c: p.c.toFixed(3) })),
+      sampleHz: hz.toFixed(1),
+    };
+  }
+
+  // Analyze touch API channels from hold phase moves
+  const touchRx = computeStats(extract(holdTouchMoves, 'rx'), 'touch_radiusX');
+  const touchRy = computeStats(extract(holdTouchMoves, 'ry'), 'touch_radiusY');
+  const touchF = computeStats(extract(holdTouchMoves, 'f'), 'touch_force');
+  const touchX = computeStats(extract(holdTouchMoves, 'x'), 'touch_posX');
+  const touchY = computeStats(extract(holdTouchMoves, 'y'), 'touch_posY');
+
+  // Analyze pointer API channels from hold phase moves
+  const ptrRx = computeStats(extract(holdPtrMoves, 'rx'), 'ptr_width');
+  const ptrRy = computeStats(extract(holdPtrMoves, 'ry'), 'ptr_height');
+  const ptrF = computeStats(extract(holdPtrMoves, 'f'), 'ptr_pressure');
+  const ptrX = computeStats(extract(holdPtrMoves, 'x'), 'ptr_posX');
+  const ptrY = computeStats(extract(holdPtrMoves, 'y'), 'ptr_posY');
+
+  // Periodicity on channels with variance
+  const touchRxP = touchRx.hasVariance ? detectPeriodicity(extract(holdTouchMoves, 'rx')) : { found: false, note: 'No variance' };
+  const touchXP = touchX.hasVariance ? detectPeriodicity(extract(holdTouchMoves, 'x')) : { found: false, note: 'No variance' };
+  const touchYP = touchY.hasVariance ? detectPeriodicity(extract(holdTouchMoves, 'y')) : { found: false, note: 'No variance' };
+  const ptrFP = ptrF.hasVariance ? detectPeriodicity(extract(holdPtrMoves, 'f')) : { found: false, note: 'No variance' };
+  const ptrRxP = ptrRx.hasVariance ? detectPeriodicity(extract(holdPtrMoves, 'rx')) : { found: false, note: 'No variance' };
+  const ptrXP = ptrX.hasVariance ? detectPeriodicity(extract(holdPtrMoves, 'x')) : { found: false, note: 'No variance' };
+
+  // Tier assessment
+  const anyCardiac = [touchRxP, ptrFP, ptrRxP].some(p => p.found && p.band === 'cardiac');
+  const anyTremor = [touchXP, touchYP, ptrXP].some(p => p.found && p.band === 'tremor');
+  const anyContactVariance = touchRx.hasVariance || ptrRx.hasVariance;
+  const anyPressureVariance = touchF.hasVariance || ptrF.hasVariance;
+
+  let tier = 3, tierLabel = 'Baseline';
+  if ((anyCardiac || anyContactVariance) && anyTremor) { tier = 1; tierLabel = 'Full Multi-Channel'; }
+  else if (anyContactVariance || anyTremor || anyPressureVariance) { tier = 2; tierLabel = 'Partial Signal'; }
+
+  APP.sessionData = {
+    device: APP.deviceInfo, duration: duration.toFixed(1), holdMode: APP.holdMode,
+    totalTouch: touchEvents.length, totalPointer: pointerEvents.length, totalMotion: md.length,
+    holdTouchEvents: holdTouch.length, holdTouchMoves: holdTouchMoves.length,
+    holdPointerEvents: holdPointer.length, holdPointerMoves: holdPtrMoves.length,
+    rxForceMirrored,
+    touch: { rx: touchRx, ry: touchRy, f: touchF, x: touchX, y: touchY },
+    pointer: { rx: ptrRx, ry: ptrRy, f: ptrF, x: ptrX, y: ptrY },
+    spectral: { touchRx: touchRxP, touchX: touchXP, touchY: touchYP, ptrF: ptrFP, ptrRx: ptrRxP, ptrX: ptrXP },
+    tier, tierLabel, anyCardiac, anyTremor, anyContactVariance, anyPressureVariance,
+    holdSample: holdTouchMoves.length > 10
+      ? [holdTouchMoves[0], holdTouchMoves[Math.floor(holdTouchMoves.length*0.25)], holdTouchMoves[Math.floor(holdTouchMoves.length*0.5)], holdTouchMoves[Math.floor(holdTouchMoves.length*0.75)], holdTouchMoves[holdTouchMoves.length-1]]
+      : holdTouchMoves.slice(0, 5),
+    ptrSample: holdPtrMoves.length > 10
+      ? [holdPtrMoves[0], holdPtrMoves[Math.floor(holdPtrMoves.length*0.25)], holdPtrMoves[Math.floor(holdPtrMoves.length*0.5)], holdPtrMoves[Math.floor(holdPtrMoves.length*0.75)], holdPtrMoves[holdPtrMoves.length-1]]
+      : holdPtrMoves.slice(0, 5),
+  };
+}
+
+function exportData() {
+  const payload = {
+    device: APP.deviceInfo, exportedAt: new Date().toISOString(),
+    touchEvents: APP.touchData, motionEvents: APP.motionData, analysis: APP.sessionData,
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `apop_${APP.deviceInfo?.deviceType}_${APP.deviceInfo?.browser}_${Date.now()}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// ===== RENDERING =====
+function render() {
+  const app = document.getElementById('app');
+  
+  if (APP.phase === 'intro') {
+    app.innerHTML = `
+      <div class="screen">
+        <div style="width:56px;height:56px;border-radius:50%;background:radial-gradient(circle at 30% 30%,#3b82f6,#1e40af);margin-bottom:20px;box-shadow:0 0 40px rgba(59,130,246,0.25);display:flex;align-items:center;justify-content:center">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+        </div>
+        <h1>APoP Signal Capture</h1>
+        <p class="sub">Captures touch sensor data to detect involuntary bioelectric signals. Dual API capture: Touch Events + Pointer Events.</p>
+        
+        ${APP.deviceInfo ? `
+        <div class="card" style="margin:20px auto;text-align:left">
+          <div class="card-label">Device</div>
+          <div style="font-size:16px;font-weight:600;color:#c9d1d9">${APP.deviceInfo.deviceType}</div>
+          <div style="font-size:12px;color:#5b6b7d;margin-top:4px">
+            ${APP.deviceInfo.browser} · ${APP.deviceInfo.maxTouchPoints} touch · ${APP.deviceInfo.screenWidth}×${APP.deviceInfo.screenHeight} · ${APP.deviceInfo.pixelRatio}x
+          </div>
+          <div style="margin-top:8px">
+            ${APP.deviceInfo.hasTouch ? '<span class="tag blue">Touch API</span>' : ''}
+            ${APP.deviceInfo.hasPointerEvents ? '<span class="tag purple">Pointer API</span>' : ''}
+            ${APP.deviceInfo.hasDeviceMotion ? '<span class="tag green">Motion</span>' : ''}
+          </div>
+        </div>` : ''}
+        
+        <div class="mode-toggle" style="max-width:280px;width:100%">
+          <button id="mode-circle" class="${APP.holdMode === 'circle' ? 'active' : ''}" onclick="APP.holdMode='circle';render()">Circle Trace</button>
+          <button id="mode-still" class="${APP.holdMode === 'still' ? 'active' : ''}" onclick="APP.holdMode='still';render()">Hold Still</button>
+        </div>
+        <p style="font-size:11px;color:#4b5563;max-width:260px;margin-bottom:24px">
+          ${APP.holdMode === 'circle' ? 'Slowly trace small circles with your thumb on the target area.' : 'Hold your thumb as still as possible on the target. Tests for micro-tremor.'}
+        </p>
+        
+        <button class="btn primary" onclick="startSession()">Begin Capture</button>
+        <p style="font-size:11px;color:#4b5563;margin-top:14px;max-width:260px">~30 seconds total. Two phases.</p>
+      </div>
+    `;
+  }
+  
+  else if (APP.phase === 'hold') {
+    const circ = 2 * Math.PI * 52;
+    const offset = circ * (1 - APP.holdProgress);
+    const isCircle = APP.holdMode === 'circle';
+    
+    app.innerHTML = `
+      <div class="screen" style="touch-action:none;user-select:none;-webkit-user-select:none">
+        <div class="phase-label">Phase 1 of 2 · ${isCircle ? 'Circle Trace' : 'Hold Still'}</div>
+        <h2>${isCircle ? 'Slow Circle Trace' : 'Hold Perfectly Still'}</h2>
+        <p class="sub" style="margin-bottom:20px">
+          ${isCircle 
+            ? 'Place your thumb in the circle and <strong style="color:#a0aec0">slowly trace small circles</strong> while maintaining contact for 10 seconds.' 
+            : 'Place your thumb in the circle and <strong style="color:#a0aec0">hold as still as possible</strong> for 10 seconds. Don\'t move at all.'}
+        </p>
+        
+        <div id="touch-zone" class="touch-zone" style="margin-bottom:20px">
+          <svg width="200" height="200" style="position:absolute;top:0;left:0;transform:rotate(-90deg)">
+            <circle cx="100" cy="100" r="52" fill="none" stroke="rgba(255,255,255,0.04)" stroke-width="6"/>
+            <circle cx="100" cy="100" r="52" fill="none" stroke="${APP.holdComplete ? '#34d399' : '#3b82f6'}" stroke-width="6" stroke-dasharray="${circ}" stroke-dashoffset="${offset}" stroke-linecap="round"/>
+          </svg>
+          ${isCircle && APP.holdActive && !APP.holdComplete ? `
+          <svg width="200" height="200" style="position:absolute;top:0;left:0">
+            <circle cx="100" cy="100" r="20" fill="none" stroke="rgba(59,130,246,0.1)" stroke-width="1" stroke-dasharray="4 4"/>
+          </svg>` : ''}
+          <div style="position:relative;z-index:1;text-align:center">
+            ${APP.holdComplete 
+              ? '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>'
+              : APP.holdActive 
+                ? `<span style="font-size:28px;font-weight:700;color:#e0e6ed">${Math.ceil(10 - APP.holdProgress * 10)}</span><div style="font-size:10px;color:#5b6b7d;margin-top:2px">${isCircle ? 'keep tracing' : 'hold still'}</div>`
+                : `<div style="font-size:10px;color:#5b6b7d">touch here</div>`
+            }
+          </div>
+        </div>
+        
+        <div class="card" style="padding:10px 14px;max-width:300px">
+          <div class="live-bar">
+            <span class="label">Samples</span>
+            <span class="val">${APP.liveSamples}</span>
+          </div>
+          ${APP.liveRx !== null ? `
+          <div class="live-bar" style="margin-top:4px">
+            <span class="label">radiusX</span>
+            <span class="val blue">${APP.liveRx.toFixed(2)}</span>
+          </div>` : ''}
+        </div>
+        
+        ${APP.holdComplete ? '<p style="font-size:13px;color:#34d399;margin-top:12px">Moving to free interaction...</p>' : ''}
+      </div>
+    `;
+    
+    // Attach touch handlers to the zone
+    const zone = document.getElementById('touch-zone');
+    if (zone) {
+      zone.addEventListener('touchstart', (e) => { e.preventDefault(); captureTouchEvent(e, 'touchstart'); startHold(); }, { passive: false });
+      zone.addEventListener('touchmove', (e) => { e.preventDefault(); captureTouchEvent(e, 'touchmove'); }, { passive: false });
+      zone.addEventListener('touchend', (e) => { e.preventDefault(); captureTouchEvent(e, 'touchend'); endHold(); }, { passive: false });
+      zone.addEventListener('touchcancel', (e) => { e.preventDefault(); captureTouchEvent(e, 'touchcancel'); endHold(); }, { passive: false });
+      // Pointer events too
+      zone.addEventListener('pointerdown', (e) => { e.preventDefault(); capturePointerEvent(e, 'down'); }, { passive: false });
+      zone.addEventListener('pointermove', (e) => { e.preventDefault(); capturePointerEvent(e, 'move'); }, { passive: false });
+      zone.addEventListener('pointerup', (e) => { e.preventDefault(); capturePointerEvent(e, 'up'); }, { passive: false });
+    }
+  }
+  
+  else if (APP.phase === 'freeform') {
+    app.innerHTML = `
+      <div class="screen top" id="freeform-screen" style="user-select:none;-webkit-user-select:none;overflow-y:auto;touch-action:pan-y">
+        <div class="phase-label">Phase 2 of 2</div>
+        <h2>Natural Interaction</h2>
+        <p class="sub" style="margin-bottom:16px">Scroll, tap, interact for 15–20 seconds.</p>
+        
+        <div class="freeform-content">
+          <p>Your autonomic nervous system continuously generates involuntary electrical signals. Your heartbeat modulates blood flow to your fingertips, altering capacitive coupling with the screen.</p>
+          <p style="margin-top:12px">Motor neurons produce 8–12 Hz physiological tremor embedded in touch position data. Even holding still, your body produces micro-movements reflecting your unique physiology.</p>
+          <p style="margin-top:12px">Scroll through this text naturally. The differences between your Touch API and Pointer API readings may reveal sensor capabilities hidden in one interface but exposed in the other.</p>
+        </div>
+        
+        <div class="tap-buttons">
+          <button>Tap A</button><button>Tap B</button><button>Tap C</button><button>Tap D</button>
+        </div>
+        
+        <div style="font-size:11px;color:#4b5563;margin:12px 0;font-family:monospace">
+          ${APP.liveSamples} samples · ${APP.tapCount} taps · ${APP.scrollSamples} moves
+        </div>
+        
+        <button class="btn success" onclick="finishSession()">Finish & Analyze</button>
+      </div>
+    `;
+    
+    const screen = document.getElementById('freeform-screen');
+    if (screen) {
+      screen.addEventListener('touchstart', (e) => { captureTouchEvent(e, 'touchstart'); APP.tapCount++; renderLive(); }, { passive: true });
+      screen.addEventListener('touchmove', (e) => { captureTouchEvent(e, 'touchmove'); APP.scrollSamples++; renderLive(); }, { passive: true });
+      screen.addEventListener('touchend', (e) => { captureTouchEvent(e, 'touchend'); }, { passive: true });
+      screen.addEventListener('pointermove', (e) => { capturePointerEvent(e, 'move'); }, { passive: true });
+      screen.addEventListener('pointerdown', (e) => { capturePointerEvent(e, 'down'); }, { passive: true });
+    }
+  }
+  
+  else if (APP.phase === 'results' && APP.sessionData) {
+    renderResults();
+  }
+}
+
+function renderLive() {
+  // Lightweight update of just the counter during freeform
+  const el = document.querySelector('.tap-buttons + div');
+  if (el) el.textContent = `${APP.liveSamples} samples · ${APP.tapCount} taps · ${APP.scrollSamples} moves`;
+}
+
+function channelHTML(title, stats, spectral, color) {
+  if (!stats || stats.n === 0) {
+    return `<div class="card channel-card"><div class="channel-header"><span class="channel-title">${title}</span><span class="tag dim">No data</span></div></div>`;
+  }
+  let periodHTML = '';
+  if (spectral) {
+    if (spectral.found) {
+      const bandColor = spectral.band === 'cardiac' ? '#f59e0b' : spectral.band === 'tremor' ? '#a78bfa' : '#60a5fa';
+      const label = spectral.band === 'cardiac' ? `Cardiac: ${spectral.freq} Hz (~${spectral.bpm} BPM)` : spectral.band === 'tremor' ? `Tremor: ${spectral.freq} Hz` : `Signal: ${spectral.freq} Hz`;
+      periodHTML = `
+        <div style="border-top:1px solid rgba(255,255,255,0.05);padding-top:8px;margin-top:8px">
+          <div style="font-size:10px;color:#4b5563;margin-bottom:4px">PERIODICITY</div>
+          <div style="font-size:12px;color:${bandColor};font-weight:600">${label}</div>
+          <div style="font-size:10px;color:#5b6b7d;margin-top:2px">corr: ${spectral.corr} · lag: ${spectral.lag}</div>
+          ${spectral.allPeaks && spectral.allPeaks.length > 1 ? `<div style="font-size:10px;color:#3b4a5a;margin-top:4px">Peaks: ${spectral.allPeaks.map(p => p.f + 'Hz(r=' + p.c + ')').join(', ')}</div>` : ''}
+        </div>`;
+    } else {
+      periodHTML = `<div style="border-top:1px solid rgba(255,255,255,0.05);padding-top:8px;margin-top:8px"><div style="font-size:10px;color:#4b5563">PERIODICITY</div><div style="font-size:11px;color:#4b5563">${spectral.note}</div></div>`;
+    }
+  }
+  
+  return `
+    <div class="card channel-card">
+      <div class="channel-header">
+        <span class="channel-title">${title}</span>
+        <span class="tag" style="background:${color}18;color:${color}">${stats.n} @ ${stats.hz}Hz</span>
+      </div>
+      <div class="stat-grid">
+        <div><div class="stat-label">Mean</div><div class="stat-val">${p(stats.mean)}</div></div>
+        <div><div class="stat-label">Std</div><div class="stat-val">${stats.std}</div></div>
+        <div><div class="stat-label">Range</div><div class="stat-val">${p(stats.range)}</div></div>
+        <div><div class="stat-label">Unique</div><div class="stat-val">${stats.uniqueValues}</div></div>
+      </div>
+      <div style="font-size:10px;color:${stats.hasVariance ? '#34d399' : '#6b7280'}">
+        ${stats.hasVariance ? '✓ Variance (range: ' + stats.range + ')' : '✗ No variance'}
+      </div>
+      ${periodHTML}
+    </div>`;
+}
+
+function p(v) { const n = parseFloat(v); return Math.abs(n) > 100 ? n.toFixed(1) : v; }
+
+function renderResults() {
+  const d = APP.sessionData;
+  const app = document.getElementById('app');
+  const tierClass = d.tier === 1 ? 't1' : d.tier === 2 ? 't2' : 't3';
+  const tierColor = d.tier === 1 ? '#34d399' : d.tier === 2 ? '#60a5fa' : '#f59e0b';
+  
+  const tagCheck = (label, ok) => `<span class="tag ${ok ? 'green' : 'dim'}">${ok ? '✓' : '✗'} ${label}</span>`;
+
+  app.innerHTML = `
+    <div class="screen top" style="overflow-y:auto;justify-content:flex-start;padding-top:30px;padding-bottom:80px">
+      <h2 style="font-size:22px;font-weight:700;color:#f0f4f8">Signal Analysis</h2>
+      <p style="font-size:12px;color:#5b6b7d;margin:4px 0 16px">
+        ${d.duration}s · ${d.holdMode} mode · ${d.totalTouch} touch + ${d.totalPointer} pointer events · ${d.totalMotion} motion
+      </p>
+      
+      <div class="tier-box ${tierClass}">
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:#6b7b8d">Device Capability</div>
+        <div style="font-size:26px;font-weight:700;color:${tierColor};margin:4px 0">Tier ${d.tier}</div>
+        <div style="font-size:12px;color:#8b95a1">${d.tierLabel}</div>
+        <div style="margin-top:10px">
+          ${tagCheck('Cardiac', d.anyCardiac)}
+          ${tagCheck('Tremor', d.anyTremor)}
+          ${tagCheck('Pressure', d.anyPressureVariance)}
+          ${tagCheck('ContactArea', d.anyContactVariance)}
+        </div>
+      </div>
+      
+      ${d.rxForceMirrored ? `
+      <div class="card warn" style="max-width:360px">
+        <div style="font-size:12px;color:#f59e0b;font-weight:600;margin-bottom:4px">iOS API Quirk Detected</div>
+        <div style="font-size:11px;color:#8b95a1;line-height:1.5">radiusX/force mirrored on touchstart, force=0 on touchmove. Pointer Events may provide independent pressure data.</div>
+      </div>` : ''}
+      
+      <div class="results-scroll">
+        <div class="card-label" style="margin:8px 0">Touch API Channels (hold phase moves)</div>
+        <div style="font-size:11px;color:#4b5563;margin-bottom:8px">${d.holdTouchMoves} touchmove events captured</div>
+        ${channelHTML('radiusX (contact width)', d.touch.rx, d.spectral.touchRx, '#3b82f6')}
+        ${channelHTML('radiusY (contact height)', d.touch.ry, null, '#6366f1')}
+        ${channelHTML('force (pressure)', d.touch.f, null, '#8b5cf6')}
+        ${channelHTML('positionX', d.touch.x, d.spectral.touchX, '#10b981')}
+        ${channelHTML('positionY', d.touch.y, d.spectral.touchY, '#14b8a6')}
+        
+        <div class="card-label" style="margin:16px 0 8px">Pointer API Channels (hold phase moves)</div>
+        <div style="font-size:11px;color:#4b5563;margin-bottom:8px">${d.holdPointerMoves} pointermove events captured</div>
+        ${channelHTML('width (contact)', d.pointer.rx, d.spectral.ptrRx, '#3b82f6')}
+        ${channelHTML('height (contact)', d.pointer.ry, null, '#6366f1')}
+        ${channelHTML('pressure', d.pointer.f, d.spectral.ptrF, '#8b5cf6')}
+        ${channelHTML('positionX', d.pointer.x, d.spectral.ptrX, '#10b981')}
+        ${channelHTML('positionY', d.pointer.y, null, '#14b8a6')}
+        
+        <div class="card-label" style="margin:16px 0 8px">Hold Phase Samples (Touch API)</div>
+        <div class="card"><pre class="data">${JSON.stringify(d.holdSample, null, 2)}</pre></div>
+        
+        <div class="card-label" style="margin:16px 0 8px">Hold Phase Samples (Pointer API)</div>
+        <div class="card"><pre class="data">${JSON.stringify(d.ptrSample, null, 2)}</pre></div>
+      </div>
+      
+      <div style="display:flex;gap:10px;margin-top:20px;flex-wrap:wrap;justify-content:center">
+        <button class="btn primary" onclick="exportData()">Export Dataset</button>
+        <button class="btn ghost" onclick="resetSession()">New Session</button>
+      </div>
+      <p style="font-size:11px;color:#3b4a5a;margin-top:14px;max-width:280px;text-align:center">Full JSON includes all raw touch, pointer, and motion events.</p>
+    </div>
+  `;
+}
+
+// ===== SESSION CONTROL =====
+async function startSession() {
+  await requestMotion();
+  APP.touchData = [];
+  APP.motionData = [];
+  APP.sessionStart = performance.now();
+  APP.recording = true;
+  APP.holdComplete = false;
+  APP.holdActive = false;
+  APP.holdProgress = 0;
+  APP.tapCount = 0;
+  APP.scrollSamples = 0;
+  APP.liveSamples = 0;
+  APP.liveRx = null;
+  APP.sessionData = null;
+  APP.phase = 'hold';
+  render();
+}
+
+function startHold() {
+  if (APP.phase !== 'hold' || APP.holdComplete) return;
+  APP.holdStart = performance.now();
+  APP.holdActive = true;
+  APP.holdProgress = 0;
+  
+  function tick() {
+    if (!APP.holdStart) return;
+    const elapsed = performance.now() - APP.holdStart;
+    APP.holdProgress = Math.min(elapsed / 10000, 1);
+    if (APP.holdProgress >= 1) {
+      APP.holdComplete = true;
+      APP.holdActive = false;
+      APP.holdStart = null;
+      render();
+      setTimeout(() => { APP.phase = 'freeform'; render(); }, 800);
+    } else {
+      render(); // re-render to update progress
+      APP.animFrame = requestAnimationFrame(tick);
+    }
+  }
+  APP.animFrame = requestAnimationFrame(tick);
+}
+
+function endHold() {
+  if (APP.holdStart && !APP.holdComplete) {
+    APP.holdStart = null;
+    APP.holdActive = false;
+    cancelAnimationFrame(APP.animFrame);
+    APP.holdProgress = 0;
+    render();
+  }
+}
+
+function finishSession() {
+  APP.recording = false;
+  window.removeEventListener('devicemotion', captureMotion);
+  analyze();
+  APP.phase = 'results';
+  render();
+}
+
+function resetSession() {
+  APP.phase = 'intro';
+  APP.sessionData = null;
+  render();
+}
+
+// ===== INIT =====
+window.startSession = startSession;
+window.finishSession = finishSession;
+window.resetSession = resetSession;
+window.exportData = exportData;
+window.APP = APP;
+window.render = render;
+
+document.addEventListener('DOMContentLoaded', () => {
+  detectDevice();
+  document.addEventListener('touchmove', (e) => {
+    if (APP.phase === 'hold') e.preventDefault();
+  }, { passive: false });
+  render();
+});
+</script>
+</body>
+</html>
