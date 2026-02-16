@@ -503,6 +503,8 @@ function initBridgeState() {
     endTs: null,
     cueIndex: -1,
     cueHits: 0,
+    cueTargetHits: 0,
+    cueTargetTotal: 0,
     cueMatched: {},
     impulses: [],
     pointer: [],
@@ -665,8 +667,8 @@ function compareBridgePackets(localPacket, peerPacket) {
     tremorScore = 0.45;
   }
 
-  const hitA = localPacket.cueHitRate || 0;
-  const hitB = peerPacket.cueHitRate || 0;
+  const hitA = localPacket.targetCueHitRate ?? localPacket.cueHitRate ?? 0;
+  const hitB = peerPacket.targetCueHitRate ?? peerPacket.cueHitRate ?? 0;
   const challengeScore = Math.max(0, Math.min(hitA, hitB));
 
   const impA = Math.max(1, localPacket.impulseCount || 0);
@@ -709,6 +711,8 @@ function buildBridgePacket(b) {
 
   const cueTotal = b.schedule.length;
   const cueHitRate = cueTotal > 0 ? (b.cueHits / cueTotal) : 0;
+  const targetCueTotal = b.cueTargetTotal || 0;
+  const targetCueHitRate = targetCueTotal > 0 ? (b.cueTargetHits / targetCueTotal) : 0;
   return {
     v: 1,
     role: b.role,
@@ -720,6 +724,9 @@ function buildBridgePacket(b) {
     cueTotal,
     cueHits: b.cueHits,
     cueHitRate: parseFloat(cueHitRate.toFixed(3)),
+    targetCueTotal,
+    targetCueHits: b.cueTargetHits,
+    targetCueHitRate: parseFloat(targetCueHitRate.toFixed(3)),
     impulseCount: b.impulses.length,
     envelope,
     tremor,
@@ -755,6 +762,7 @@ async function bridgeStartCapture() {
   b.startTs = performance.now();
   b.endTs = null;
   b.cueHits = 0;
+  b.cueTargetHits = 0;
   b.cueMatched = {};
   b.cueIndex = -1;
   b.impulses = [];
@@ -765,6 +773,8 @@ async function bridgeStartCapture() {
   b.comparison = null;
   b.status = '';
   b.lastPointerTs = -1;
+  const roleParity = b.role === 'phone' ? 0 : 1; // phone acts on even cues, desktop on odd cues
+  b.cueTargetTotal = b.schedule.filter((_, i) => i % 2 === roleParity).length;
 
   if (b.role === 'phone' && typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
     try { await DeviceMotionEvent.requestPermission(); } catch {}
@@ -778,6 +788,7 @@ async function bridgeStartCapture() {
       if (Math.abs(nowRel - b.schedule[i]) <= pulseWindowMs) {
         b.cueMatched[i] = true;
         b.cueHits++;
+        if (i % 2 === roleParity) b.cueTargetHits++;
         break;
       }
     }
@@ -858,12 +869,24 @@ async function bridgeStartCapture() {
     const timerEl = document.getElementById('bridge-timer');
     const hitsEl = document.getElementById('bridge-hits');
     if (timerEl) timerEl.textContent = `${Math.max(0, ((b.durationMs - elapsed) / 1000)).toFixed(1)}s`;
-    if (hitsEl) hitsEl.textContent = `${b.cueHits}/${b.schedule.length}`;
+    if (hitsEl) hitsEl.textContent = `${b.cueTargetHits}/${b.cueTargetTotal}`;
     if (cueEl) {
       const active = idx >= 0 && elapsed - b.schedule[idx] < 220;
+      const isTargetCue = idx >= 0 ? (idx % 2 === roleParity) : false;
       cueEl.style.transform = active ? 'scale(1.1)' : 'scale(1.0)';
-      cueEl.style.background = active ? 'rgba(16,185,129,0.35)' : 'rgba(59,130,246,0.14)';
-      cueEl.style.borderColor = active ? 'rgba(16,185,129,0.7)' : 'rgba(59,130,246,0.35)';
+      cueEl.style.background = active
+        ? (isTargetCue ? 'rgba(16,185,129,0.35)' : 'rgba(245,158,11,0.25)')
+        : 'rgba(59,130,246,0.14)';
+      cueEl.style.borderColor = active
+        ? (isTargetCue ? 'rgba(16,185,129,0.7)' : 'rgba(245,158,11,0.7)')
+        : 'rgba(59,130,246,0.35)';
+      cueEl.textContent = active ? (isTargetCue ? 'ACT' : 'WAIT') : '';
+      cueEl.style.display = 'flex';
+      cueEl.style.alignItems = 'center';
+      cueEl.style.justifyContent = 'center';
+      cueEl.style.fontSize = '12px';
+      cueEl.style.fontWeight = '700';
+      cueEl.style.color = '#d1d5db';
     }
     if (elapsed >= b.durationMs) {
       stopCapture();
@@ -970,7 +993,7 @@ function render() {
       <div class="screen top" style="overflow-y:auto;justify-content:flex-start;padding-top:24px;padding-bottom:60px">
         <div class="phase-label">Experimental</div>
         <h2>BioBridge Coherence Proof</h2>
-        <p class="sub" style="margin-bottom:14px">Run on phone and computer with the same code, then paste packets to compare cross-device coherence.</p>
+        <p class="sub" style="margin-bottom:14px">Run on phone and computer with the same code. Pulses alternate by role (ACT/WAIT), so you never need simultaneous taps.</p>
 
         <div class="card" style="max-width:380px">
           <div class="card-label">Role</div>
@@ -992,12 +1015,12 @@ function render() {
         ${b.capturing ? `
         <div class="card" style="max-width:380px;text-align:center">
           <div id="bridge-cue" style="width:110px;height:110px;border-radius:50%;margin:6px auto 12px;border:2px solid rgba(59,130,246,0.35);background:rgba(59,130,246,0.14);transition:all .12s ease"></div>
-          <div style="font-size:12px;color:#8b95a1">Interact when it pulses (tap/click/scroll/keypress)</div>
+          <div style="font-size:12px;color:#8b95a1">Interact only on ACT pulses. Ignore WAIT pulses.</div>
           <div style="display:flex;justify-content:space-between;margin-top:10px;font-size:12px">
             <span style="color:#5b6b7d">Time Left</span><span id="bridge-timer" style="color:#d1d5db;font-family:monospace">16.0s</span>
           </div>
           <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:12px">
-            <span style="color:#5b6b7d">Cue Hits</span><span id="bridge-hits" style="color:#d1d5db;font-family:monospace">0/${b.schedule.length}</span>
+            <span style="color:#5b6b7d">Target Hits</span><span id="bridge-hits" style="color:#d1d5db;font-family:monospace">0/${b.cueTargetTotal || 0}</span>
           </div>
         </div>` : ''}
 
@@ -1005,7 +1028,7 @@ function render() {
         <div class="card" style="max-width:380px">
           <div class="card-label">Local Packet</div>
           <div style="font-size:11px;color:#8b95a1;line-height:1.5;margin-bottom:8px">
-            Role: ${b.packet.role} · impulses: ${b.packet.impulseCount} · cue hit rate: ${(b.packet.cueHitRate * 100).toFixed(1)}% · tremor: ${b.packet.tremor?.found ? `${b.packet.tremor.freq}Hz (${b.packet.tremor.source})` : 'not found'}
+            Role: ${b.packet.role} · impulses: ${b.packet.impulseCount} · target hit rate: ${((b.packet.targetCueHitRate ?? b.packet.cueHitRate) * 100).toFixed(1)}% · tremor: ${b.packet.tremor?.found ? `${b.packet.tremor.freq}Hz (${b.packet.tremor.source})` : 'not found'}
           </div>
           <textarea readonly style="width:100%;min-height:96px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#9ca3af;padding:8px;font-size:11px;line-height:1.4">${packetPreview}</textarea>
         </div>
