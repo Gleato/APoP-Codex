@@ -162,26 +162,52 @@ function seededRand(seedObj) {
 }
 
 function generateSchedule() {
-  // Use crypto random seed for unpredictability
   const seed = crypto.getRandomValues(new Uint32Array(1))[0];
   const rng = { s: seed };
   const schedule = [];
   const dur = S.durationMs;
-  const padding = 40; // px from edge
-  const arenaW = 380 - padding * 2;
-  const arenaH = 380 - padding * 2;
 
-  // Generate cues with irregular timing (prevents anticipation)
+  // On touch devices: bias targets to lower 65% of arena to avoid thumb occlusion
+  // On desktop: use full arena
+  const pad = 40;
+  const arenaW = 380 - pad * 2;
+  const xMin = pad, xMax = 380 - pad;
+  let yMin, yMax;
+  if (S.isTouch) {
+    // Bottom-biased: top 35% is "look-ahead" zone, targets spawn in bottom 65%
+    yMin = Math.round(380 * 0.35);
+    yMax = 380 - pad;
+  } else {
+    yMin = pad;
+    yMax = 380 - pad;
+  }
+  const yRange = yMax - yMin;
+
+  // Bigger targets on touch (thumb is imprecise), slightly smaller on desktop
+  const baseSz = S.isTouch ? 76 : 62;
+  const szVar = S.isTouch ? 16 : 22;
+
   let t = 800 + Math.floor(seededRand(rng) * 400);
+  let prevX = 380 / 2, prevY = (yMin + yMax) / 2; // start near center
+
   while (t < dur - 600) {
-    const x = padding + seededRand(rng) * arenaW;
-    const y = padding + seededRand(rng) * arenaH;
-    // Vary target size slightly to test motor adaptation
-    const size = 60 + Math.floor(seededRand(rng) * 24);
-    const showDuration = 900 + Math.floor(seededRand(rng) * 400); // 900-1300ms visible
+    // Generate candidate position, retry if too close to previous (keeps movement interesting)
+    // or if consecutive targets cluster in the same spot
+    let x, y, attempts = 0;
+    do {
+      x = xMin + seededRand(rng) * arenaW;
+      y = yMin + seededRand(rng) * yRange;
+      attempts++;
+    } while (attempts < 8 && Math.sqrt((x-prevX)**2 + (y-prevY)**2) < 60);
+
+    const size = baseSz + Math.floor(seededRand(rng) * szVar);
+    const showDuration = S.isTouch
+      ? 1200 + Math.floor(seededRand(rng) * 500) // more time on touch (slide takes longer)
+      : 900 + Math.floor(seededRand(rng) * 400);
     schedule.push({ ts: Math.round(t), x: Math.round(x), y: Math.round(y), size, showDuration });
-    // Irregular inter-cue intervals: 650ms to 1500ms
-    const gap = 650 + Math.floor(seededRand(rng) * 850);
+
+    prevX = x; prevY = y;
+    const gap = 550 + Math.floor(seededRand(rng) * 900);
     t += showDuration + gap;
   }
   S.schedule = schedule;
@@ -351,13 +377,16 @@ function skewness(arr) {
 }
 
 function analyzeApproaches(hits) {
-  // For each hit, find pointer trail points in the 250ms window before the tap
+  // For each hit, find pointer trail points before arrival
+  // Touch at ~15Hz needs wider window than desktop at ~60Hz
+  const windowMs = S.isTouch ? 500 : 250;
+  const minPts = S.isTouch ? 2 : 3;
   const results = [];
   for (const h of hits) {
     const tapTs = h.hitTs;
-    const windowStart = tapTs - 250;
+    const windowStart = tapTs - windowMs;
     const trail = S.pointerTrail.filter(p => p.ts >= windowStart && p.ts <= tapTs);
-    if (trail.length < 3) { results.push({ hasTrail: false }); continue; }
+    if (trail.length < minPts) { results.push({ hasTrail: false }); continue; }
     // Compute approach curvature, speed profile, and jitter
     let totalDist = 0, speeds = [], angles = [];
     for (let i = 1; i < trail.length; i++) {
@@ -398,7 +427,9 @@ function analyzeApproaches(hits) {
     avgCurvature: +avgCurvature.toFixed(4),
     decelRate: +decelRate.toFixed(3),
     speedVariability: +speedVariability.toFixed(1),
-    isNatural: decelRate > 0.3 && avgCurvature > 0.01 && speedVariability > 20,
+    isNatural: S.isTouch
+      ? (decelRate > 0.1 || avgCurvature > 0.01) && speedVariability > 20
+      : decelRate > 0.3 && avgCurvature > 0.01 && speedVariability > 20,
   };
 }
 
@@ -453,7 +484,8 @@ function analyzePathKinematics() {
   // Approach deceleration from speed profile
   let decelCount = 0, decelTotal = 0;
   for (const a of S.cueResults.filter(a => a.hit)) {
-    const seg = speeds.filter(s => s.ts >= a.hitTs - 300 && s.ts <= a.hitTs);
+    const adWindow = S.isTouch ? 600 : 300;
+    const seg = speeds.filter(s => s.ts >= a.hitTs - adWindow && s.ts <= a.hitTs);
     if (seg.length < 4) continue;
     decelTotal++;
     const h = Math.floor(seg.length / 2);
@@ -576,12 +608,13 @@ function scoreRT(stats, skew, raw) {
 }
 
 function scoreSpatial(stats, raw) {
-  if (raw.length < 3) return 0.3;
+  if (raw.length < 2) return 0.3;
   let s = 0;
-  // Natural: mean offset 8-35px, some spread
-  if (stats.mean > 3 && stats.mean < 45) s += 0.4;
-  if (stats.std > 2 && stats.std < 25) s += 0.35;
-  // Penalty for perfect center hits (bot-like)
+  // Touch with larger targets: natural offset up to 55px
+  // Desktop with mouse: tighter, up to 35px
+  const maxNatural = S.isTouch ? 55 : 40;
+  if (stats.mean > 2 && stats.mean < maxNatural) s += 0.4;
+  if (stats.std > 1.5 && stats.std < 30) s += 0.35;
   const perfectHits = raw.filter(d => d < 2).length;
   if (perfectHits > raw.length * 0.5) s *= 0.4;
   s += 0.25;
@@ -607,11 +640,19 @@ function scoreRhythm(stats, cv, raw) {
 }
 
 function scoreApproach(analysis) {
-  if (analysis.trailCount < 2) return 0.35; // can't tell without trail data
+  if (analysis.trailCount < 1) return 0.35;
   let s = 0;
-  if (analysis.decelRate > 0.3) s += 0.35; // humans decelerate before tapping
-  if (analysis.avgCurvature > 0.005) s += 0.25; // non-linear approach paths
-  if (analysis.speedVariability > 15) s += 0.25; // variable approach speeds
+  if (S.isTouch) {
+    // Touch: ballistic swipes don't always decelerate, weight curvature + speed var more
+    if (analysis.decelRate > 0.15) s += 0.25;
+    if (analysis.avgCurvature > 0.005) s += 0.30;
+    if (analysis.speedVariability > 30) s += 0.30;
+  } else {
+    // Desktop: deceleration is a strong signal
+    if (analysis.decelRate > 0.3) s += 0.35;
+    if (analysis.avgCurvature > 0.005) s += 0.25;
+    if (analysis.speedVariability > 15) s += 0.25;
+  }
   s += 0.15;
   return Math.min(1, s);
 }
@@ -967,6 +1008,7 @@ function render() {
         <div class="progress-bar"><div class="progress-fill" id="prog-fill" style="width:0%"></div></div>
         <div class="arena" id="arena">
           <div class="arena-bg"></div>
+          ${S.isTouch ? '<div style="position:absolute;top:0;left:0;right:0;height:35%;background:linear-gradient(to bottom,rgba(255,255,255,0.02),transparent);pointer-events:none;border-bottom:1px dashed rgba(255,255,255,0.04)"></div>' : ''}
           <div class="target" id="target" style="opacity:0">
             <div class="target-ring"></div>
             <div class="target-fill"></div>
