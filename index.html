@@ -313,7 +313,6 @@ function analyzeSession() {
       hits: hits.length,
       misses: misses.length,
       totalTaps: taps.length,
-      falseTaps, falseTapRate: (falseTapRate * 100).toFixed(1),
       durationSec: (S.durationMs / 1000).toFixed(1),
       motionSamples: motion.length,
       pathPoints: S.pointerTrail.length,
@@ -747,8 +746,14 @@ function endChallenge() {
   render();
   // Run analysis async to show loading state
   setTimeout(() => {
-    analyzeSession();
-    S.phase = 'results';
+    try {
+      analyzeSession();
+      S.phase = 'results';
+    } catch(err) {
+      console.error('Analysis error:', err);
+      S.analysis = { composite: '0', verdict: 'Error: ' + err.message, vc: 'var(--bad)', scores: {}, detail: {rt:{n:0,mean:0,std:0,raw:[]},spatial:{n:0,mean:0,std:0,raw:[]},rhythm:{n:0,cv:'0',raw:[]},approach:{trailCount:0,totalHits:0,avgCurvature:0,decelRate:0,speedVariability:0,isNatural:false},pathK:{hasData:false,n:0},tremor:{found:false,note:err.message,n:0},pathTremor:{found:false,note:'error'},pressure:{hasVariance:false}}, summary:{totalCues:S.cueCount,hits:S.hits,misses:S.misses,totalTaps:S.taps.length,pathPoints:S.pointerTrail.length,motionSamples:S.motionSamples.length,durationSec:(S.durationMs/1000).toFixed(1),inputMode:S.isTouch?'slide':'click'} };
+      S.phase = 'results';
+    }
     render();
   }, 600);
 }
