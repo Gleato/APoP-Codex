@@ -1,1218 +1,1349 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>APoP Challenge-Response v3</title>
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-<style>
-  :root {
-    --bg: #06080c;
-    --surface: rgba(255,255,255,0.025);
-    --border: rgba(255,255,255,0.06);
-    --text-1: #edf2f7;
-    --text-2: #a0aec0;
-    --text-3: #4a5568;
-    --accent: #22d3ee;
-    --accent-dim: rgba(34,211,238,0.12);
-    --warn: #f59e0b;
-    --good: #34d399;
-    --bad: #f87171;
-    --mono: 'JetBrains Mono', monospace;
-    --sans: 'Outfit', sans-serif;
-  }
-  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
-  html,body { height:100%; overflow:hidden; background:var(--bg); color:var(--text-2); font-family:var(--sans); touch-action:none; }
-  #app { height:100%; overflow-y:auto; -webkit-overflow-scrolling:touch; }
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Causal Perturbation Liveness Prototype</title>
+  <style>
+    :root {
+      --bg: #f4f2ec;
+      --ink: #1c1d1f;
+      --muted: #5a606b;
+      --panel: #ffffff;
+      --line: #d6d8de;
+      --accent: #0f766e;
+      --accent-2: #f59e0b;
+      --good: #0f9d58;
+      --warn: #b45309;
+      --bad: #b91c1c;
+      --mono: "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+      --sans: "Avenir Next", "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    }
 
-  .screen { min-height:100vh; display:flex; flex-direction:column; align-items:center; padding:24px; }
-  .screen.center { justify-content:center; }
-  .screen.top { justify-content:flex-start; padding-top:32px; padding-bottom:80px; }
+    * { box-sizing: border-box; }
 
-  h1 { font-size:28px; font-weight:800; color:var(--text-1); letter-spacing:-0.03em; line-height:1.1; }
-  h2 { font-size:20px; font-weight:700; color:var(--text-1); letter-spacing:-0.02em; }
-  .sub { font-size:13px; color:var(--text-3); line-height:1.6; max-width:320px; margin:8px auto 0; text-align:center; }
-  .phase-tag { font-size:10px; font-weight:700; letter-spacing:0.12em; text-transform:uppercase; color:var(--accent); margin-bottom:8px; }
+    body {
+      margin: 0;
+      font-family: var(--sans);
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 10% 10%, rgba(15, 118, 110, 0.12), transparent 35%),
+        radial-gradient(circle at 85% 15%, rgba(245, 158, 11, 0.12), transparent 38%),
+        linear-gradient(145deg, #f9f7f3, var(--bg));
+      min-height: 100vh;
+      padding: 18px;
+    }
 
-  .card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:16px; width:100%; max-width:380px; margin-bottom:12px; }
-  .card-label { font-size:10px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:var(--text-3); margin-bottom:8px; }
+    .layout {
+      max-width: 1180px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 14px;
+    }
 
-  .btn { font-family:var(--sans); padding:14px 32px; font-size:14px; font-weight:700; border:none; border-radius:10px; cursor:pointer; user-select:none; -webkit-user-select:none; transition:all 0.15s ease; letter-spacing:-0.01em; }
-  .btn:active { transform:scale(0.97); }
-  .btn.primary { background:linear-gradient(135deg,var(--accent),#06b6d4); color:#000; box-shadow:0 4px 24px rgba(34,211,238,0.25); }
-  .btn.ghost { background:var(--surface); color:var(--text-2); border:1px solid var(--border); }
-  .btn.success { background:linear-gradient(135deg,var(--good),#059669); color:#000; box-shadow:0 4px 20px rgba(52,211,153,0.2); }
-  .btn.small { padding:10px 20px; font-size:12px; }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      box-shadow: 0 8px 32px rgba(20, 24, 35, 0.06);
+    }
 
-  .mono { font-family:var(--mono); }
-  .tag { font-family:var(--mono); font-size:10px; font-weight:600; padding:3px 8px; border-radius:5px; display:inline-block; }
-  .tag.cyan { background:var(--accent-dim); color:var(--accent); }
-  .tag.green { background:rgba(52,211,153,0.12); color:var(--good); }
-  .tag.amber { background:rgba(245,158,11,0.12); color:var(--warn); }
-  .tag.red { background:rgba(248,113,113,0.12); color:var(--bad); }
-  .tag.dim { background:rgba(255,255,255,0.04); color:var(--text-3); }
+    .left {
+      padding: 14px;
+      display: grid;
+      gap: 10px;
+    }
 
-  /* Challenge arena */
-  .arena { position:relative; width:100%; max-width:380px; height:380px; border-radius:16px; background:rgba(0,0,0,0.4); border:1px solid var(--border); overflow:hidden; margin:16px 0; touch-action:none; user-select:none; -webkit-user-select:none; }
-  .arena-bg { position:absolute; inset:0; background:radial-gradient(circle at 50% 50%, rgba(34,211,238,0.03) 0%, transparent 70%); pointer-events:none; }
-  .target { position:absolute; width:72px; height:72px; border-radius:50%; transform:translate(-50%,-50%); display:flex; align-items:center; justify-content:center; transition:opacity 0.08s ease; pointer-events:none; }
-  .target-ring { position:absolute; inset:0; border-radius:50%; border:2px solid var(--accent); opacity:0.3; }
-  .target-fill { position:absolute; inset:8px; border-radius:50%; background:var(--accent); opacity:0; transition:opacity 0.06s ease; }
-  .target.active .target-ring { opacity:1; border-color:var(--accent); animation:target-pulse 0.4s ease; }
-  .target.active .target-fill { opacity:0.25; }
-  .target.hit .target-ring { border-color:var(--good); opacity:0.8; }
-  .target.hit .target-fill { background:var(--good); opacity:0.3; }
-  .target.miss .target-ring { border-color:var(--bad); opacity:0.4; }
-  @keyframes target-pulse { 0%{transform:scale(0.7);opacity:0} 50%{transform:scale(1.1)} 100%{transform:scale(1);opacity:1} }
+    .topline {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      justify-content: space-between;
+    }
 
-  .hud { display:flex; justify-content:space-between; align-items:center; width:100%; max-width:380px; padding:0 4px; }
-  .hud-item { text-align:center; }
-  .hud-label { font-size:9px; font-weight:600; letter-spacing:0.08em; text-transform:uppercase; color:var(--text-3); }
-  .hud-val { font-family:var(--mono); font-size:18px; font-weight:700; color:var(--text-1); }
+    h1 {
+      margin: 0;
+      font-size: 1.16rem;
+      line-height: 1.2;
+      letter-spacing: 0.01em;
+    }
 
-  .progress-bar { width:100%; max-width:380px; height:3px; background:rgba(255,255,255,0.06); border-radius:2px; margin:12px 0; overflow:hidden; }
-  .progress-fill { height:100%; background:var(--accent); border-radius:2px; transition:width 0.1s linear; }
+    .small {
+      font-size: 0.84rem;
+      color: var(--muted);
+      margin: 0;
+      line-height: 1.45;
+    }
 
-  /* Results */
-  .score-ring { position:relative; width:140px; height:140px; margin:20px auto; }
-  .score-ring svg { width:100%; height:100%; }
-  .score-center { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; }
-  .score-num { font-family:var(--mono); font-size:36px; font-weight:700; }
-  .score-label { font-size:11px; font-weight:600; letter-spacing:0.06em; text-transform:uppercase; }
+    .chip {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      color: var(--muted);
+      background: #fbfbfc;
+    }
 
-  .metric-row { display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid var(--border); }
-  .metric-row:last-child { border-bottom:none; }
-  .metric-name { font-size:12px; color:var(--text-2); }
-  .metric-val { font-family:var(--mono); font-size:12px; font-weight:600; color:var(--text-1); }
-  .metric-bar { width:60px; height:4px; background:rgba(255,255,255,0.06); border-radius:2px; margin-left:8px; overflow:hidden; display:inline-block; vertical-align:middle; }
-  .metric-bar-fill { height:100%; border-radius:2px; }
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
 
-  pre.raw { font-family:var(--mono); font-size:9px; color:var(--text-3); line-height:1.5; white-space:pre-wrap; word-break:break-all; max-height:200px; overflow-y:auto; }
+    button {
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+      border-radius: 10px;
+      font: inherit;
+      font-weight: 600;
+      padding: 9px 12px;
+      cursor: pointer;
+      transition: transform 0.08s ease, box-shadow 0.1s ease, border-color 0.1s ease;
+    }
 
-  .fade-in { animation:fadeIn 0.4s ease both; }
-  @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:none} }
-</style>
+    button:hover {
+      border-color: #a9afb8;
+      box-shadow: 0 3px 10px rgba(12, 18, 32, 0.08);
+    }
+
+    button:active {
+      transform: translateY(1px);
+    }
+
+    button.primary {
+      border-color: #0b5f58;
+      background: linear-gradient(140deg, #0f766e, #0b615a);
+      color: #fff;
+    }
+
+    button.ghost {
+      background: #fcfcfd;
+    }
+
+    button:disabled {
+      opacity: 0.55;
+      cursor: default;
+      box-shadow: none;
+    }
+
+    .status {
+      font-size: 0.82rem;
+      color: var(--muted);
+      font-family: var(--mono);
+    }
+
+    .arena-wrap {
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      overflow: hidden;
+      background: linear-gradient(180deg, #f7f8fa, #eff1f5);
+      min-height: 420px;
+      position: relative;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: 420px;
+      touch-action: none;
+      cursor: crosshair;
+    }
+
+    .hud {
+      position: absolute;
+      left: 10px;
+      right: 10px;
+      top: 10px;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+      pointer-events: none;
+    }
+
+    .hud-box {
+      border: 1px solid rgba(28, 29, 31, 0.12);
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.75);
+      backdrop-filter: blur(1.5px);
+      padding: 6px 8px;
+    }
+
+    .hud-label {
+      font-size: 0.64rem;
+      text-transform: uppercase;
+      color: var(--muted);
+      letter-spacing: 0.08em;
+      margin-bottom: 2px;
+      font-family: var(--mono);
+    }
+
+    .hud-value {
+      font-weight: 700;
+      font-size: 0.9rem;
+      font-family: var(--mono);
+    }
+
+    .progress {
+      height: 6px;
+      border-radius: 999px;
+      overflow: hidden;
+      background: #e9edf3;
+      border: 1px solid #d9dee8;
+    }
+
+    .progress > div {
+      height: 100%;
+      width: 0;
+      background: linear-gradient(90deg, #0f766e, #f59e0b);
+      transition: width 0.08s linear;
+    }
+
+    .right {
+      padding: 14px;
+      display: grid;
+      gap: 10px;
+      align-content: start;
+    }
+
+    .score {
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      padding: 10px;
+      background: #fbfbfc;
+    }
+
+    .score-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+
+    .score-num {
+      font-size: 1.9rem;
+      font-family: var(--mono);
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    .verdict {
+      font-weight: 700;
+      font-size: 0.92rem;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.8rem;
+    }
+
+    th, td {
+      text-align: left;
+      border-bottom: 1px solid #eceff4;
+      padding: 6px 2px;
+      vertical-align: top;
+    }
+
+    th {
+      color: var(--muted);
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      font-family: var(--mono);
+      font-weight: 600;
+    }
+
+    .mono {
+      font-family: var(--mono);
+      font-size: 0.74rem;
+      white-space: pre-wrap;
+      background: #f7f8fb;
+      border: 1px solid #e3e7ef;
+      border-radius: 10px;
+      padding: 8px;
+      max-height: 210px;
+      overflow: auto;
+      color: #2f3947;
+    }
+
+    .legend {
+      display: grid;
+      gap: 6px;
+      font-size: 0.78rem;
+      color: #3f4650;
+      padding: 8px;
+      border: 1px dashed #d4d8e0;
+      border-radius: 10px;
+      background: #fafbfc;
+    }
+
+    .legend b {
+      color: #1d242e;
+    }
+
+    .footnote {
+      font-size: 0.74rem;
+      color: var(--muted);
+      line-height: 1.4;
+    }
+
+    @media (max-width: 1020px) {
+      .layout {
+        grid-template-columns: 1fr;
+      }
+
+      canvas {
+        height: 360px;
+      }
+
+      .arena-wrap {
+        min-height: 360px;
+      }
+
+      .hud {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+  </style>
 </head>
 <body>
-<div id="app"></div>
-<script>
-// ===== STATE =====
-const S = {
-  phase: 'intro', // intro | countdown | challenge | analyze | results
-  deviceInfo: null,
-  motionPermission: false,
-
-  // Challenge config
-  difficulty: 'standard', // standard | hard
-  durationMs: 14000,
-  cueCount: 0,
-
-  // Challenge schedule (generated per session)
-  schedule: [], // [{ts, x, y, size}]
-  
-  // Runtime
-  startTs: null,
-  elapsed: 0,
-  cueIndex: -1,
-  activeCue: null,
-  hits: 0,
-  misses: 0,
-  taps: [], // all tap events with full detail
-  motionSamples: [], // accelerometer/gyro during session
-  pointerTrail: [], // continuous path from move events
-  contactDown: false, // finger/mouse currently down in arena
-  cueResults: [], // per-cue: {cueTs, hitTs, reactionMs, dx, dy, dist, hit}
-  rafId: null,
-  countdownVal: 3,
-
-  // Results
-  analysis: null,
-};
-
-// ===== DEVICE =====
-function detectDevice() {
-  const ua = navigator.userAgent.toLowerCase();
-  const info = {
-    userAgent: navigator.userAgent,
-    platform: navigator.platform,
-    maxTouchPoints: navigator.maxTouchPoints || 0,
-    hasTouch: 'ontouchstart' in window,
-    hasMotion: 'DeviceMotionEvent' in window,
-    screenW: window.screen.width,
-    screenH: window.screen.height,
-    dpr: window.devicePixelRatio,
-    ts: Date.now(),
-  };
-  if (/iphone/.test(ua)) info.device = 'iPhone';
-  else if (/ipad/.test(ua)) info.device = 'iPad';
-  else if (/android/.test(ua) && /mobile/.test(ua)) info.device = 'Android';
-  else if (/android/.test(ua)) info.device = 'Android Tablet';
-  else if (/macintosh/.test(ua)) info.device = 'Mac';
-  else if (/windows/.test(ua)) info.device = 'Windows';
-  else info.device = 'Unknown';
-  info.browser = /safari/.test(ua) && !/chrome/.test(ua) ? 'Safari' : /chrome/.test(ua) ? 'Chrome' : /firefox/.test(ua) ? 'Firefox' : 'Other';
-  S.deviceInfo = info;
-  S.isTouch = info.hasTouch && /iPhone|iPad|Android/.test(info.device);
-}
-
-// ===== CHALLENGE GENERATION =====
-function seededRand(seedObj) {
-  seedObj.s = (Math.imul(seedObj.s, 1664525) + 1013904223) >>> 0;
-  return seedObj.s / 4294967296;
-}
-
-function generateSchedule() {
-  const seed = crypto.getRandomValues(new Uint32Array(1))[0];
-  const rng = { s: seed };
-  const schedule = [];
-  const dur = S.durationMs;
-
-  // On touch devices: bias targets to lower 65% of arena to avoid thumb occlusion
-  // On desktop: use full arena
-  const pad = 40;
-  const arenaW = 380 - pad * 2;
-  const xMin = pad, xMax = 380 - pad;
-  let yMin, yMax;
-  if (S.isTouch) {
-    // Bottom-biased: top 35% is "look-ahead" zone, targets spawn in bottom 65%
-    yMin = Math.round(380 * 0.35);
-    yMax = 380 - pad;
-  } else {
-    yMin = pad;
-    yMax = 380 - pad;
-  }
-  const yRange = yMax - yMin;
-
-  // Bigger targets on touch (thumb is imprecise), slightly smaller on desktop
-  const baseSz = S.isTouch ? 76 : 62;
-  const szVar = S.isTouch ? 16 : 22;
-
-  let t = 800 + Math.floor(seededRand(rng) * 400);
-  let prevX = 380 / 2, prevY = (yMin + yMax) / 2; // start near center
-
-  while (t < dur - 600) {
-    // Generate candidate position, retry if too close to previous (keeps movement interesting)
-    // or if consecutive targets cluster in the same spot
-    let x, y, attempts = 0;
-    do {
-      x = xMin + seededRand(rng) * arenaW;
-      y = yMin + seededRand(rng) * yRange;
-      attempts++;
-    } while (attempts < 8 && Math.sqrt((x-prevX)**2 + (y-prevY)**2) < 60);
-
-    const size = baseSz + Math.floor(seededRand(rng) * szVar);
-    const showDuration = S.isTouch
-      ? 1200 + Math.floor(seededRand(rng) * 500) // more time on touch (slide takes longer)
-      : 900 + Math.floor(seededRand(rng) * 400);
-    schedule.push({ ts: Math.round(t), x: Math.round(x), y: Math.round(y), size, showDuration });
-
-    prevX = x; prevY = y;
-    const gap = 550 + Math.floor(seededRand(rng) * 900);
-    t += showDuration + gap;
-  }
-  S.schedule = schedule;
-  S.cueCount = schedule.length;
-  return schedule;
-}
-
-// ===== MOTION CAPTURE =====
-async function requestMotion() {
-  if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
-    try {
-      const p = await DeviceMotionEvent.requestPermission();
-      S.motionPermission = p === 'granted';
-    } catch { S.motionPermission = false; }
-  } else {
-    S.motionPermission = !!window.DeviceMotionEvent;
-  }
-}
-
-function onMotion(e) {
-  if (S.phase !== 'challenge') return;
-  const a = e.acceleration || {};
-  const ag = e.accelerationIncludingGravity || {};
-  const r = e.rotationRate || {};
-  S.motionSamples.push({
-    ts: performance.now() - S.startTs,
-    ax: a.x, ay: a.y, az: a.z,
-    agx: ag.x, agy: ag.y, agz: ag.z,
-    ra: r.alpha, rb: r.beta, rg: r.gamma,
-  });
-}
-
-// ===== ANALYSIS ENGINE =====
-function analyzeSession() {
-  const taps = S.taps;
-  const cues = S.cueResults;
-  const motion = S.motionSamples;
-  const hits = cues.filter(c => c.hit);
-  const misses = cues.filter(c => !c.hit);
-
-  // 1. Reaction time analysis
-  // In slide mode, sub-100ms "reactions" mean finger was already near target — filter these
-  const allRTs = hits.map(c => c.reactionMs).filter(r => r > 0);
-  const reactionTimes = allRTs.filter(r => r >= 100); // true reactions
-  const proximityHits = allRTs.filter(r => r < 100).length; // finger was already there
-  const rtStats = computeStats(reactionTimes);
-  // Human RT is typically 200-400ms with right skew
-  // Bots produce near-zero or perfectly consistent RT
-  const rtSkewness = reactionTimes.length >= 5 ? skewness(reactionTimes) : 0;
-  const rtIsHuman = rtStats.mean > 100 && rtStats.mean < 1200 && rtStats.std > 15;
-
-  // 2. Spatial accuracy analysis  
-  const hitDistances = hits.map(c => c.dist);
-  const distStats = computeStats(hitDistances);
-  // Humans show gaussian-like distribution of tap accuracy
-  // Bots hit dead center or have artificial jitter
-  const spatialVariance = distStats.std > 2 && distStats.mean > 3 && distStats.mean < 50;
-
-  // 3. Inter-arrival interval analysis (rhythm drift)
-  // Use arrival timestamps at cue targets, not raw tap events
-  const arrivalTimes = hits.map(c => c.hitTs).filter(t => t > 0).sort((a,b) => a - b);
-  const intervals = [];
-  for (let i = 1; i < arrivalTimes.length; i++) intervals.push(arrivalTimes[i] - arrivalTimes[i-1]);
-  const itiStats = computeStats(intervals);
-  // Humans have irregular inter-tap intervals; bots tend toward regularity
-  const itiCv = itiStats.mean > 0 ? itiStats.std / itiStats.mean : 0; // coefficient of variation
-  const rhythmNatural = itiCv > 0.10 && itiCv < 1.5;
-
-  // 4. Approach trajectory analysis
-  const approachAnalysis = analyzeApproaches(hits);
-
-  // 5. Path kinematics (NEW — continuous path signal)
-  const pathK = analyzePathKinematics();
-
-  // 6. Accelerometer tremor analysis
-  const tremorResult = analyzeTremor(motion);
-
-  // 7. Path-based tremor (NEW — works even without accelerometer)
-  const pathTremorResult = analyzePathTremor();
-
-  // 8. Tap pressure/contact analysis
-  const pressureVariance = analyzePressure(taps);
-
-  // === SCORING ===
-  const scores = {
-    reactionTime: scoreRT(rtStats, rtSkewness, reactionTimes),
-    spatialAccuracy: scoreSpatial(distStats, hitDistances),
-    pathKinematics: scorePathK(pathK),
-    approachDynamics: scoreApproach(approachAnalysis),
-    rhythmVariance: scoreRhythm(itiStats, itiCv, intervals),
-    motorTremor: scoreTremorCombined(tremorResult, pathTremorResult),
-    challengeCompliance: Math.min(1, hits.length / Math.max(1, S.cueCount)),
-  };
-
-  const weights = {
-    reactionTime: 0.15,
-    spatialAccuracy: 0.10,
-    pathKinematics: 0.25,
-    approachDynamics: 0.15,
-    rhythmVariance: 0.10,
-    motorTremor: 0.10,
-    challengeCompliance: 0.15,
-  };
-
-  let composite = 0;
-  for (const k in scores) composite += (scores[k] || 0) * (weights[k] || 0);
-  composite = Math.max(0, Math.min(100, composite * 100));
-
-  const verdict = composite >= 80 ? 'Human (High Confidence)' :
-                  composite >= 60 ? 'Human (Moderate Confidence)' :
-                  composite >= 40 ? 'Inconclusive' :
-                  composite >= 20 ? 'Suspicious' : 'Likely Automated';
-
-  const verdictColor = composite >= 80 ? 'var(--good)' :
-                       composite >= 60 ? 'var(--accent)' :
-                       composite >= 40 ? 'var(--warn)' : 'var(--bad)';
-
-  S.analysis = {
-    composite: composite.toFixed(1),
-    verdict, verdictColor, scores, weights,
-    detail: {
-      rt: { ...rtStats, skewness: rtSkewness.toFixed(3), isHuman: rtIsHuman, raw: reactionTimes },
-      spatial: { ...distStats, isNatural: spatialVariance, raw: hitDistances },
-      rhythm: { ...itiStats, cv: itiCv.toFixed(3), isNatural: rhythmNatural, raw: intervals },
-      approach: approachAnalysis,
-      pathK,
-      tremor: tremorResult,
-      pathTremor: pathTremorResult,
-      pressure: pressureVariance,
-    },
-    summary: {
-      totalCues: S.cueCount,
-      hits: hits.length,
-      misses: misses.length,
-      totalTaps: taps.length,
-      durationSec: (S.durationMs / 1000).toFixed(1),
-      motionSamples: motion.length,
-      pathPoints: S.pointerTrail.length,
-      inputMode: S.isTouch ? 'slide' : 'click',
-    },
-  };
-}
-
-function computeStats(arr) {
-  if (!arr.length) return { n:0, mean:0, std:0, min:0, max:0, median:0 };
-  const n = arr.length;
-  const sorted = [...arr].sort((a,b) => a - b);
-  const mean = arr.reduce((a,b) => a+b, 0) / n;
-  const variance = arr.reduce((a,b) => a + (b - mean)**2, 0) / n;
-  return {
-    n, mean: +mean.toFixed(2), std: +Math.sqrt(variance).toFixed(2),
-    min: +sorted[0].toFixed(2), max: +sorted[n-1].toFixed(2),
-    median: +sorted[Math.floor(n/2)].toFixed(2),
-    p25: +sorted[Math.floor(n*0.25)].toFixed(2),
-    p75: +sorted[Math.floor(n*0.75)].toFixed(2),
-  };
-}
-
-function skewness(arr) {
-  const n = arr.length;
-  if (n < 3) return 0;
-  const mean = arr.reduce((a,b) => a+b, 0) / n;
-  const m2 = arr.reduce((a,b) => a + (b-mean)**2, 0) / n;
-  const m3 = arr.reduce((a,b) => a + (b-mean)**3, 0) / n;
-  const s = Math.sqrt(m2);
-  return s > 0 ? m3 / (s**3) : 0;
-}
-
-function analyzeApproaches(hits) {
-  // For each hit, find pointer trail points before arrival
-  // Touch at ~15Hz needs wider window than desktop at ~60Hz
-  const windowMs = S.isTouch ? 500 : 250;
-  const minPts = S.isTouch ? 2 : 3;
-  const results = [];
-  for (const h of hits) {
-    const tapTs = h.hitTs;
-    const windowStart = tapTs - windowMs;
-    const trail = S.pointerTrail.filter(p => p.ts >= windowStart && p.ts <= tapTs);
-    if (trail.length < minPts) { results.push({ hasTrail: false }); continue; }
-    // Compute approach curvature, speed profile, and jitter
-    let totalDist = 0, speeds = [], angles = [];
-    for (let i = 1; i < trail.length; i++) {
-      const dx = trail[i].x - trail[i-1].x;
-      const dy = trail[i].y - trail[i-1].y;
-      const dt = trail[i].ts - trail[i-1].ts;
-      const d = Math.sqrt(dx*dx + dy*dy);
-      totalDist += d;
-      if (dt > 0) speeds.push(d / (dt/1000));
-      if (i > 1) {
-        const dx0 = trail[i-1].x - trail[i-2].x;
-        const dy0 = trail[i-1].y - trail[i-2].y;
-        const cross = dx0*dy - dy0*dx;
-        const dot = dx0*dx + dy0*dy;
-        angles.push(Math.atan2(cross, dot));
-      }
-    }
-    const speedStats = computeStats(speeds);
-    const curvature = angles.length > 0 ? angles.reduce((a,b) => a + Math.abs(b), 0) / angles.length : 0;
-    // Deceleration: does speed decrease approaching the target? (human behavior)
-    const firstHalf = speeds.slice(0, Math.floor(speeds.length/2));
-    const secondHalf = speeds.slice(Math.floor(speeds.length/2));
-    const avgFirst = firstHalf.length ? firstHalf.reduce((a,b)=>a+b,0)/firstHalf.length : 0;
-    const avgSecond = secondHalf.length ? secondHalf.reduce((a,b)=>a+b,0)/secondHalf.length : 0;
-    const decelerates = avgFirst > avgSecond * 1.1;
-    results.push({
-      hasTrail: true, points: trail.length, totalDist: +totalDist.toFixed(1),
-      speedMean: speedStats.mean, speedStd: speedStats.std,
-      curvature: +curvature.toFixed(4), decelerates,
-    });
-  }
-  const withTrail = results.filter(r => r.hasTrail);
-  const avgCurvature = withTrail.length ? withTrail.reduce((a,r) => a + r.curvature, 0) / withTrail.length : 0;
-  const decelRate = withTrail.length ? withTrail.filter(r => r.decelerates).length / withTrail.length : 0;
-  const speedVariability = withTrail.length ? withTrail.reduce((a,r) => a + r.speedStd, 0) / withTrail.length : 0;
-  return {
-    trailCount: withTrail.length, totalHits: results.length,
-    avgCurvature: +avgCurvature.toFixed(4),
-    decelRate: +decelRate.toFixed(3),
-    speedVariability: +speedVariability.toFixed(1),
-    isNatural: S.isTouch
-      ? (decelRate > 0.1 || avgCurvature > 0.01) && speedVariability > 20
-      : decelRate > 0.3 && avgCurvature > 0.01 && speedVariability > 20,
-  };
-}
-
-function analyzePathKinematics() {
-  const p = S.pointerTrail;
-  if (p.length < 20) return { n: p.length, hasData: false };
-  const speeds = [], curvatures = [];
-  for (let i = 1; i < p.length; i++) {
-    const dt = (p[i].ts - p[i-1].ts) / 1000;
-    if (dt < 0.001) continue;
-    const dx = p[i].x - p[i-1].x, dy = p[i].y - p[i-1].y;
-    speeds.push({ ts: p[i].ts, val: Math.sqrt(dx*dx + dy*dy) / dt });
-  }
-  const jerks = [];
-  const accels = [];
-  for (let i = 1; i < speeds.length; i++) {
-    const dt = (speeds[i].ts - speeds[i-1].ts) / 1000;
-    if (dt < 0.001) continue;
-    accels.push({ ts: speeds[i].ts, val: (speeds[i].val - speeds[i-1].val) / dt });
-  }
-  for (let i = 1; i < accels.length; i++) {
-    const dt = (accels[i].ts - accels[i-1].ts) / 1000;
-    if (dt < 0.001) continue;
-    jerks.push(Math.abs(accels[i].val - accels[i-1].val) / dt);
-  }
-  for (let i = 2; i < p.length; i++) {
-    const dx1 = p[i-1].x - p[i-2].x, dy1 = p[i-1].y - p[i-2].y;
-    const dx2 = p[i].x - p[i-1].x, dy2 = p[i].y - p[i-1].y;
-    curvatures.push(Math.abs(Math.atan2(dx1*dy2 - dy1*dx2, dx1*dx2 + dy1*dy2)));
-  }
-  const spS = computeStats(speeds.map(s => s.val));
-  const jkS = computeStats(jerks);
-  const cvS = computeStats(curvatures);
-  const mc = (jkS.std > 100 ? 0.3 : 0) + (cvS.mean > 0.02 ? 0.3 : 0) + (spS.std > 50 ? 0.2 : 0);
-  // Idle drift: micro-movement between cues
-  const idle = [];
-  for (const pt of p) {
-    let during = false;
-    for (const c of S.schedule) { if (pt.ts >= c.ts && pt.ts < c.ts + c.showDuration) { during = true; break; } }
-    if (!during) idle.push(pt);
-  }
-  let idleDrift = 0, idleDriftStd = 0;
-  if (idle.length > 4) {
-    const dr = [];
-    for (let i = 1; i < idle.length; i++) {
-      const dx = idle[i].x - idle[i-1].x, dy = idle[i].y - idle[i-1].y;
-      dr.push(Math.sqrt(dx*dx + dy*dy));
-    }
-    idleDrift = dr.reduce((a,b) => a+b, 0) / dr.length;
-    idleDriftStd = Math.sqrt(dr.reduce((a,b) => a + (b - idleDrift)**2, 0) / dr.length);
-  }
-  // Approach deceleration from speed profile
-  let decelCount = 0, decelTotal = 0;
-  for (const a of S.cueResults.filter(a => a.hit)) {
-    const adWindow = S.isTouch ? 600 : 300;
-    const seg = speeds.filter(s => s.ts >= a.hitTs - adWindow && s.ts <= a.hitTs);
-    if (seg.length < 4) continue;
-    decelTotal++;
-    const h = Math.floor(seg.length / 2);
-    const f = seg.slice(0, h).reduce((a,s) => a + s.val, 0) / h;
-    const s2 = seg.slice(h).reduce((a,s) => a + s.val, 0) / (seg.length - h);
-    if (f > s2 * 1.05) decelCount++;
-  }
-  return {
-    hasData: true, n: p.length, speed: spS, jerk: jkS, curvature: cvS,
-    movementComplexity: +mc.toFixed(3),
-    idleDrift: +idleDrift.toFixed(3), idleDriftStd: +idleDriftStd.toFixed(3),
-    approachDecelRate: decelTotal > 0 ? +(decelCount / decelTotal).toFixed(3) : 0,
-    sampleHz: p.length > 1 ? +(1000 / ((p[p.length-1].ts - p[0].ts) / (p.length - 1))).toFixed(1) : 0,
-  };
-}
-
-function analyzePathTremor() {
-  const p = S.pointerTrail;
-  if (p.length < 60) return { found: false, note: 'Insufficient path (' + p.length + ')' };
-  const w = 7, half = Math.floor(w / 2), devs = [];
-  for (let i = half; i < p.length - half; i++) {
-    let sx = 0, sy = 0;
-    for (let j = i - half; j <= i + half; j++) { sx += p[j].x; sy += p[j].y; }
-    sx /= w; sy /= w;
-    devs.push({ ts: p[i].ts, val: Math.sqrt((p[i].x - sx)**2 + (p[i].y - sy)**2) });
-  }
-  if (devs.length < 40) return { found: false, note: 'Insufficient deviations' };
-  const vals = devs.map(d => d.val);
-  const mean = vals.reduce((a,b) => a+b, 0) / vals.length;
-  const det = vals.map(v => v - mean);
-  const norm = det.reduce((a,b) => a + b*b, 0);
-  if (norm < 1e-10) return { found: false, note: 'No deviation variance' };
-  const dts = [];
-  for (let i = 1; i < devs.length; i++) dts.push(devs[i].ts - devs[i-1].ts);
-  const avgMs = dts.reduce((a,b) => a+b, 0) / dts.length;
-  const hz = 1000 / avgMs;
-  const minLag = Math.max(2, Math.floor(hz / 12));
-  const maxLag = Math.min(Math.floor(vals.length / 2), Math.floor(hz / 6));
-  if (minLag >= maxLag) return { found: false, note: 'Rate too low', sampleHz: +hz.toFixed(1) };
-  let best = null;
-  for (let lag = minLag; lag <= maxLag; lag++) {
-    let c = 0;
-    for (let i = 0; i < det.length - lag; i++) c += det[i] * det[i + lag];
-    c /= norm;
-    if (!best || c > best.c) best = { lag, c, f: hz / lag };
-  }
-  if (!best || best.c < 0.04) return { found: false, note: 'No path tremor peak', sampleHz: +hz.toFixed(1), n: devs.length };
-  return { found: true, freq: +best.f.toFixed(2), corr: +best.c.toFixed(4), sampleHz: +hz.toFixed(1), n: devs.length, source: 'path_deviation' };
-}
-
-function analyzeTremor(motion) {
-  if (motion.length < 40) return { found: false, note: 'Insufficient motion data', n: motion.length };
-  const series = motion.map(m => {
-    const r = Math.sqrt((m.ra||0)**2 + (m.rb||0)**2 + (m.rg||0)**2);
-    return { ts: m.ts, val: r > 0 ? r : Math.sqrt((m.agx||0)**2 + (m.agy||0)**2 + (m.agz||0)**2) };
-  }).filter(s => !isNaN(s.val));
-  if (series.length < 40) return { found: false, note: 'Insufficient valid samples', n: series.length };
-
-  const vals = series.map(s => s.val);
-  const mean = vals.reduce((a,b) => a+b, 0) / vals.length;
-  const det = vals.map(v => v - mean);
-  const norm = det.reduce((a,b) => a + b*b, 0);
-  if (norm < 1e-10) return { found: false, note: 'No variance in motion', n: series.length };
-
-  const tsDiffs = [];
-  for (let i = 1; i < series.length; i++) tsDiffs.push(series[i].ts - series[i-1].ts);
-  const avgMs = tsDiffs.reduce((a,b) => a+b, 0) / tsDiffs.length;
-  const hz = 1000 / avgMs;
-
-  // 6-12 Hz band (stay below Nyquist for 60Hz sampling)
-  const minLag = Math.max(2, Math.ceil(hz / 12));
-  const maxLag = Math.min(Math.floor(vals.length / 2), Math.floor(hz / 6));
-  if (minLag >= maxLag) return { found: false, note: 'Sample rate too low for tremor band', sampleHz: +hz.toFixed(1), n: series.length };
-
-  let best = null;
-  for (let lag = minLag; lag <= maxLag; lag++) {
-    let c = 0;
-    for (let i = 0; i < det.length - lag; i++) c += det[i] * det[i + lag];
-    c /= norm;
-    if (!best || c > best.c) best = { lag, c, f: hz / lag };
-  }
-  if (!best || best.c < 0.06) return { found: false, note: 'No tremor peak', sampleHz: +hz.toFixed(1), n: series.length };
-  return {
-    found: true, freq: +best.f.toFixed(2), corr: +best.c.toFixed(4),
-    sampleHz: +hz.toFixed(1), n: series.length,
-    band: '6-12Hz',
-  };
-}
-
-function analyzePressure(taps) {
-  // Check if touch events carry force or radius data with variance
-  const forces = taps.filter(t => t.force > 0).map(t => t.force);
-  const radii = taps.map(t => t.radiusX).filter(v => v > 0);
-  const forceStats = computeStats(forces);
-  const radiusStats = computeStats(radii);
-  return {
-    forceAvailable: forces.length > 2,
-    forceStats,
-    radiusAvailable: radii.length > 2,
-    radiusStats,
-    hasVariance: forceStats.std > 0.01 || radiusStats.std > 0.5,
-  };
-}
-
-// === SCORING FUNCTIONS (0-1 scale) ===
-function scoreRT(stats, skew, raw) {
-  if (raw.length < 2) return 0.25;
-  let s = 0;
-  // Slide mode has wider RT range (visual search + motor planning + travel)
-  if (stats.mean > 150 && stats.mean < 900) s += 0.35;
-  else if (stats.mean > 80 && stats.mean < 1200) s += 0.15;
-  if (stats.std > 20 && stats.std < 250) s += 0.30;
-  else if (stats.std > 8) s += 0.10;
-  if (skew > -1.0 && skew < 3.0) s += 0.20;
-  if (stats.std < 5) s *= 0.3;
-  const tooFast = raw.filter(r => r < 80).length;
-  if (tooFast > raw.length * 0.3) s *= 0.4;
-  s += 0.15;
-  return Math.min(1, s);
-}
-
-function scoreSpatial(stats, raw) {
-  if (raw.length < 2) return 0.3;
-  let s = 0;
-  if (S.isTouch) {
-    // Slide mode: hits register at target edge, so high offsets are expected and normal
-    // What matters: variance (are you consistently hitting the same zone?) and not-zero
-    if (stats.mean > 2) s += 0.45; // just need to have moved to target, not teleported
-    if (stats.std > 0.5 && stats.std < 30) s += 0.30;
-  } else {
-    if (stats.mean > 2 && stats.mean < 40) s += 0.4;
-    if (stats.std > 1.5 && stats.std < 30) s += 0.35;
-  }
-  const perfectHits = raw.filter(d => d < 2).length;
-  if (perfectHits > raw.length * 0.5) s *= 0.4;
-  s += 0.25;
-  return Math.min(1, s);
-}
-
-function scoreRhythm(stats, cv, raw) {
-  if (raw.length < 2) return 0.35;
-  let s = 0;
-  if (cv > 0.10 && cv < 1.5) s += 0.45;
-  else if (cv > 0.05) s += 0.20;
-  // Check for non-stationarity (rhythm drift over session)
-  if (raw.length >= 4) {
-    const firstHalf = raw.slice(0, Math.floor(raw.length/2));
-    const lastHalf = raw.slice(Math.floor(raw.length/2));
-    const m1 = firstHalf.reduce((a,b) => a+b, 0) / firstHalf.length;
-    const m2 = lastHalf.reduce((a,b) => a+b, 0) / lastHalf.length;
-    const drift = Math.abs(m2 - m1) / Math.max(m1, 1);
-    if (drift > 0.05 && drift < 0.8) s += 0.25;
-  }
-  s += 0.2;
-  return Math.min(1, s);
-}
-
-function scoreApproach(analysis) {
-  if (analysis.trailCount < 1) return 0.35;
-  let s = 0;
-  if (S.isTouch) {
-    // Touch: ballistic swipes don't always decelerate, weight curvature + speed var more
-    if (analysis.decelRate > 0.15) s += 0.25;
-    if (analysis.avgCurvature > 0.005) s += 0.30;
-    if (analysis.speedVariability > 30) s += 0.30;
-  } else {
-    // Desktop: deceleration is a strong signal
-    if (analysis.decelRate > 0.3) s += 0.35;
-    if (analysis.avgCurvature > 0.005) s += 0.25;
-    if (analysis.speedVariability > 15) s += 0.25;
-  }
-  s += 0.15;
-  return Math.min(1, s);
-}
-
-function scoreTremor(result) {
-  if (!result.found) return 0.35; // absence isn't proof of bot
-  let s = 0;
-  if (result.freq >= 6 && result.freq <= 12) s += 0.45;
-  if (result.corr > 0.08 && result.corr < 0.5) s += 0.35;
-  s += 0.2;
-  return Math.min(1, s);
-}
-
-function scorePathK(k) {
-  if (!k || !k.hasData) return 0.2;
-  let s = 0;
-  // Movement complexity (jerk, curvature, speed variance)
-  s += Math.min(0.25, k.movementComplexity * 0.8);
-  // Approach deceleration
-  if (k.approachDecelRate > 0.15) s += 0.2;
-  else if (k.approachDecelRate > 0) s += 0.1;
-  // Idle drift: on desktop, involuntary micro-movement between cues
-  // On touch, touchmove stops when finger is still — can't measure idle drift
-  if (S.isTouch) {
-    s += 0.15; // award baseline since we can't measure this on touch
-  } else {
-    if (k.idleDrift > 0.01) s += 0.2;
-  }
-  // Path richness
-  if (k.n > 150) s += 0.15;
-  else if (k.n > 50) s += 0.10;
-  return Math.min(1, s + 0.15);
-}
-
-function scoreTremorCombined(accelT, pathT) {
-  const found = (accelT && accelT.found) || (pathT && pathT.found);
-  if (!found) return 0.35;
-  let s = 0.2;
-  if (accelT && accelT.found && accelT.freq >= 6 && accelT.freq <= 12) s += 0.35;
-  if (pathT && pathT.found && pathT.freq >= 6 && pathT.freq <= 12) s += 0.3;
-  if (accelT && accelT.found && accelT.corr > 0.08 && accelT.corr < 0.5) s += 0.15;
-  return Math.min(1, s);
-}
-
-function scorePressure(p) {
-  if (!p.forceAvailable && !p.radiusAvailable) return 0.4; // can't assess
-  let s = 0.3;
-  if (p.hasVariance) s += 0.5;
-  if (p.forceStats?.std > 0.02) s += 0.2;
-  return Math.min(1, s);
-}
-
-
-// ===== SESSION CONTROL =====
-async function startChallenge() {
-  await requestMotion();
-  if (S.motionPermission) window.addEventListener('devicemotion', onMotion);
-  
-  generateSchedule();
-  S.taps = [];
-  S.motionSamples = [];
-  S.pointerTrail = [];
-  S.cueResults = [];
-  S.contactDown = false;
-  S.hits = 0;
-  S.misses = 0;
-  S.activeCue = null;
-  S.cueIndex = -1;
-  S.elapsed = 0;
-
-  // Countdown
-  S.phase = 'countdown';
-  S.countdownVal = 3;
-  render();
-  
-  await new Promise(r => {
-    let c = 3;
-    const iv = setInterval(() => {
-      c--;
-      S.countdownVal = c;
-      render();
-      if (c <= 0) { clearInterval(iv); r(); }
-    }, 700);
-  });
-
-  S.phase = 'challenge';
-  S.startTs = performance.now();
-  render();
-  runChallenge();
-}
-
-function runChallenge() {
-  function tick() {
-    if (S.phase !== 'challenge') return;
-    S.elapsed = performance.now() - S.startTs;
-
-    if (S.elapsed >= S.durationMs) {
-      // Mark remaining active cue as missed
-      if (S.activeCue && !S.cueResults.find(c => c.cueIdx === S.cueIndex)) {
-        S.cueResults.push({ cueIdx: S.cueIndex, cueTs: S.activeCue.ts, hit: false, reactionMs: -1, dx:0, dy:0, dist:0 });
-        S.misses++;
-      }
-      endChallenge();
-      return;
-    }
-
-    // Check if we need to advance cues
-    let newCueIdx = -1;
-    for (let i = 0; i < S.schedule.length; i++) {
-      const cue = S.schedule[i];
-      if (S.elapsed >= cue.ts && S.elapsed < cue.ts + cue.showDuration) {
-        newCueIdx = i;
-        break;
-      }
-    }
-
-    // If the active cue expired without a hit, record miss
-    if (S.activeCue !== null && newCueIdx !== S.cueIndex) {
-      if (!S.cueResults.find(c => c.cueIdx === S.cueIndex)) {
-        S.cueResults.push({ cueIdx: S.cueIndex, cueTs: S.activeCue.ts, hit: false, reactionMs: -1, dx:0, dy:0, dist:0 });
-        S.misses++;
-      }
-    }
-
-    if (newCueIdx >= 0 && newCueIdx !== S.cueIndex) {
-      S.cueIndex = newCueIdx;
-      S.activeCue = S.schedule[newCueIdx];
-    } else if (newCueIdx < 0) {
-      S.activeCue = null;
-    }
-
-    updateChallengeUI();
-    S.rafId = requestAnimationFrame(tick);
-  }
-  S.rafId = requestAnimationFrame(tick);
-}
-
-function endChallenge() {
-  S.phase = 'analyze';
-  cancelAnimationFrame(S.rafId);
-  window.removeEventListener('devicemotion', onMotion);
-  render();
-  // Run analysis async to show loading state
-  setTimeout(() => {
-    try {
-      analyzeSession();
-      S.phase = 'results';
-    } catch(err) {
-      console.error('Analysis error:', err);
-      S.analysis = { composite: '0', verdict: 'Error: ' + err.message, vc: 'var(--bad)', scores: {}, detail: {rt:{n:0,mean:0,std:0,raw:[]},spatial:{n:0,mean:0,std:0,raw:[]},rhythm:{n:0,cv:'0',raw:[]},approach:{trailCount:0,totalHits:0,avgCurvature:0,decelRate:0,speedVariability:0,isNatural:false},pathK:{hasData:false,n:0},tremor:{found:false,note:err.message,n:0},pathTremor:{found:false,note:'error'},pressure:{hasVariance:false}}, summary:{totalCues:S.cueCount,hits:S.hits,misses:S.misses,totalTaps:S.taps.length,pathPoints:S.pointerTrail.length,motionSamples:S.motionSamples.length,durationSec:(S.durationMs/1000).toFixed(1),inputMode:S.isTouch?'slide':'click'} };
-      S.phase = 'results';
-    }
-    render();
-  }, 600);
-}
-
-function getArenaPos(e, rect) {
-  if (e.touches && e.touches[0]) {
-    const t = e.touches[0];
-    return { x: t.clientX - rect.left, y: t.clientY - rect.top, force: t.force || 0, rx: t.radiusX || 0 };
-  }
-  if (e.changedTouches && e.changedTouches[0]) {
-    const t = e.changedTouches[0];
-    return { x: t.clientX - rect.left, y: t.clientY - rect.top, force: t.force || 0, rx: t.radiusX || 0 };
-  }
-  return { x: e.clientX - rect.left, y: e.clientY - rect.top, force: e.pressure || 0, rx: 0 };
-}
-
-function checkHitAtPos(x, y, ts) {
-  if (!S.activeCue || S.cueResults.find(c => c.cueIdx === S.cueIndex)) return;
-  const dx = x - S.activeCue.x, dy = y - S.activeCue.y;
-  const dist = Math.sqrt(dx*dx + dy*dy);
-  if (dist <= S.activeCue.size / 2 + 14) {
-    S.cueResults.push({ cueIdx: S.cueIndex, cueTs: S.activeCue.ts, hitTs: ts, hit: true, reactionMs: +(ts - S.activeCue.ts).toFixed(1), dx, dy, dist: +dist.toFixed(1) });
-    S.hits++;
-    showHitFeedback(S.activeCue.x, S.activeCue.y, true);
-  }
-}
-
-// Unified arena down handler (touch or mouse)
-function handleArenaDown(e) {
-  e.preventDefault();
-  if (S.phase !== 'challenge') return;
-  const arena = document.getElementById('arena');
-  if (!arena) return;
-  const rect = arena.getBoundingClientRect();
-  const p = getArenaPos(e, rect);
-  const ts = performance.now() - S.startTs;
-  S.contactDown = true;
-  S.pointerTrail.push({ ts, x: p.x, y: p.y });
-  S.taps.push({ ts, x: p.x, y: p.y, force: p.force, radiusX: p.rx, type: 'down' });
-  checkHitAtPos(p.x, p.y, ts);
-}
-
-// Unified arena move handler — records continuous path AND checks hits (slide mode)
-function handleArenaMove(e) {
-  e.preventDefault();
-  if (S.phase !== 'challenge') return;
-  const arena = document.getElementById('arena');
-  if (!arena) return;
-  const rect = arena.getBoundingClientRect();
-  const p = getArenaPos(e, rect);
-  const ts = performance.now() - S.startTs;
-  const last = S.pointerTrail.length > 0 ? S.pointerTrail[S.pointerTrail.length-1] : null;
-  if (last && ts - last.ts < 7) return; // ~140Hz cap
-  S.pointerTrail.push({ ts, x: p.x, y: p.y });
-  // In slide mode (touch): check hit on every move since finger stays down
-  // In click mode (desktop): also check since mouse hovers over targets
-  if (S.contactDown || !S.isTouch) checkHitAtPos(p.x, p.y, ts);
-}
-
-function handleArenaUp(e) {
-  e.preventDefault();
-  if (S.phase !== 'challenge') return;
-  S.contactDown = false;
-  const arena = document.getElementById('arena');
-  if (!arena) return;
-  const rect = arena.getBoundingClientRect();
-  const p = getArenaPos(e, rect);
-  const ts = performance.now() - S.startTs;
-  S.taps.push({ ts, x: p.x, y: p.y, force: p.force, radiusX: p.rx, type: 'up' });
-}
-
-// Desktop click also registers as a discrete hit check
-function handleArenaClick(e) {
-  if (S.phase !== 'challenge' || S.isTouch) return;
-  const arena = document.getElementById('arena');
-  if (!arena) return;
-  const rect = arena.getBoundingClientRect();
-  const p = getArenaPos(e, rect);
-  const ts = performance.now() - S.startTs;
-  S.taps.push({ ts, x: p.x, y: p.y, force: 0, radiusX: 0, type: 'click' });
-  checkHitAtPos(p.x, p.y, ts);
-}
-
-// Old tap handler kept as alias
-function handleArenaTap(e) { handleArenaDown(e); }
-
-function showHitFeedback(x, y, isHit) {
-  const arena = document.getElementById('arena');
-  if (!arena) return;
-  const dot = document.createElement('div');
-  dot.style.cssText = `position:absolute;left:${x}px;top:${y}px;width:8px;height:8px;border-radius:50%;background:${isHit?'var(--good)':'var(--bad)'};transform:translate(-50%,-50%);opacity:0.8;pointer-events:none;transition:all 0.4s ease;`;
-  arena.appendChild(dot);
-  requestAnimationFrame(() => { dot.style.opacity = '0'; dot.style.transform = 'translate(-50%,-50%) scale(3)'; });
-  setTimeout(() => dot.remove(), 500);
-}
-
-function updateChallengeUI() {
-  // Update HUD
-  const timerEl = document.getElementById('hud-time');
-  const hitsEl = document.getElementById('hud-hits');
-  const progEl = document.getElementById('prog-fill');
-  if (timerEl) timerEl.textContent = Math.max(0, ((S.durationMs - S.elapsed) / 1000)).toFixed(1) + 's';
-  if (hitsEl) hitsEl.textContent = S.hits + '/' + S.cueCount;
-  if (progEl) progEl.style.width = ((S.elapsed / S.durationMs) * 100).toFixed(1) + '%';
-
-  // Update target
-  const tgt = document.getElementById('target');
-  if (tgt) {
-    if (S.activeCue) {
-      const alreadyHit = S.cueResults.find(c => c.cueIdx === S.cueIndex && c.hit);
-      tgt.style.left = S.activeCue.x + 'px';
-      tgt.style.top = S.activeCue.y + 'px';
-      tgt.style.width = S.activeCue.size + 'px';
-      tgt.style.height = S.activeCue.size + 'px';
-      tgt.style.opacity = '1';
-      tgt.className = 'target ' + (alreadyHit ? 'hit' : 'active');
-    } else {
-      tgt.style.opacity = '0';
-      tgt.className = 'target';
-    }
-  }
-}
-
-function exportResults() {
-  const payload = {
-    device: S.deviceInfo, exportedAt: new Date().toISOString(),
-    analysis: S.analysis,
-    rawTaps: S.taps,
-    rawMotion: S.motionSamples,
-    rawPointerTrail: S.pointerTrail,
-    schedule: S.schedule,
-    cueResults: S.cueResults,
-  };
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `apop_challenge_${S.deviceInfo?.device}_${Date.now()}.json`;
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
-
-// ===== RENDER =====
-function render() {
-  const app = document.getElementById('app');
-
-  if (S.phase === 'intro') {
-    app.innerHTML = `
-      <div class="screen center">
-        <div style="position:relative;width:64px;height:64px;margin-bottom:24px">
-          <div style="position:absolute;inset:0;border-radius:50%;background:conic-gradient(from 0deg, var(--accent), #06b6d4, var(--accent));opacity:0.15;animation:spin 8s linear infinite"></div>
-          <div style="position:absolute;inset:3px;border-radius:50%;background:var(--bg);display:flex;align-items:center;justify-content:center">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
-          </div>
-        </div>
-        <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
-        <div class="phase-tag">APoP v3</div>
-        <h1>Challenge-Response<br>Liveness Test</h1>
-        <p class="sub" style="margin-top:12px">${S.isTouch
-          ? '<strong style="color:#22d3ee">Keep your finger down</strong> and slide to each target. Your continuous path reveals involuntary motor signatures.'
-          : 'Move your cursor to each target and <strong style="color:#22d3ee">click</strong>. Your movement path reveals involuntary motor signatures.'}</p>
-
-        ${S.deviceInfo ? `
-        <div class="card" style="margin:24px auto 0;text-align:left">
-          <div class="card-label">Device</div>
-          <div style="font-size:15px;font-weight:700;color:var(--text-1)">${S.deviceInfo.device}</div>
-          <div style="font-size:11px;color:var(--text-3);margin-top:4px;font-family:var(--mono)">
-            ${S.deviceInfo.browser} · ${S.deviceInfo.maxTouchPoints}pt · ${S.deviceInfo.screenW}×${S.deviceInfo.screenH} · ${S.deviceInfo.dpr}x
-          </div>
-          <div style="margin-top:8px">
-            ${S.deviceInfo.hasTouch ? '<span class="tag cyan">Touch</span>' : ''} 
-            ${S.deviceInfo.hasMotion ? '<span class="tag green">Motion</span>' : '<span class="tag dim">No Motion</span>'}
-            <span class="tag cyan">${S.isTouch ? 'Slide Mode' : 'Click Mode'}</span>
-          </div>
-        </div>` : ''}
-
-        <div class="card" style="margin-top:12px;text-align:left">
-          <div class="card-label">What's measured</div>
-          <div style="font-size:12px;color:var(--text-2);line-height:1.7">
-            <span style="color:var(--accent)">Continuous path kinematics</span> — speed, jerk, curvature<br>
-            <span style="color:var(--accent)">Approach deceleration</span> — motor planning signature<br>
-            <span style="color:var(--accent)">Idle micro-drift</span> — involuntary movement between cues<br>
-            <span style="color:var(--accent)">Reaction time</span> distribution & skewness<br>
-            <span style="color:var(--accent)">Physiological tremor</span> — path deviation & accelerometer<br>
-            <span style="color:var(--accent)">Rhythm drift</span> across the session
-          </div>
-        </div>
-
-        <button class="btn primary" style="margin-top:24px" onclick="startChallenge()">Start Challenge</button>
-        <p style="font-size:11px;color:var(--text-3);margin-top:12px">~17 seconds. ${S.isTouch ? 'Keep contact — slide between targets.' : 'Move & click targets.'}</p>
-      </div>`;
-  }
-
-  else if (S.phase === 'countdown') {
-    app.innerHTML = `
-      <div class="screen center">
-        <div style="font-size:80px;font-weight:800;color:var(--accent);font-family:var(--mono);animation:fadeIn 0.3s ease">${S.countdownVal || 'GO'}</div>
-        <p style="font-size:13px;color:var(--text-3);margin-top:16px">${S.isTouch ? 'Place your thumb on the screen — keep it down' : 'Get ready to move & click'}</p>
-      </div>`;
-  }
-
-  else if (S.phase === 'challenge') {
-    app.innerHTML = `
-      <div class="screen center" style="padding:16px">
-        <div class="hud" style="margin-bottom:8px">
-          <div class="hud-item"><div class="hud-label">Time</div><div class="hud-val" id="hud-time">${(S.durationMs/1000).toFixed(1)}s</div></div>
-          <div class="hud-item"><div class="hud-label">Hits</div><div class="hud-val" id="hud-hits">0/${S.cueCount}</div></div>
-          <div class="hud-item"><div class="hud-label">Taps</div><div class="hud-val">${S.taps.length}</div></div>
-        </div>
-        <div class="progress-bar"><div class="progress-fill" id="prog-fill" style="width:0%"></div></div>
-        <div class="arena" id="arena">
-          <div class="arena-bg"></div>
-          ${S.isTouch ? '<div style="position:absolute;top:0;left:0;right:0;height:35%;background:linear-gradient(to bottom,rgba(255,255,255,0.02),transparent);pointer-events:none;border-bottom:1px dashed rgba(255,255,255,0.04)"></div>' : ''}
-          <div class="target" id="target" style="opacity:0">
-            <div class="target-ring"></div>
-            <div class="target-fill"></div>
-          </div>
-        </div>
-        <p style="font-size:11px;color:var(--text-3);margin-top:8px">${S.isTouch ? 'Slide your finger to each circle — <strong style="color:#a0aec0">keep contact</strong>' : 'Move to each circle and <strong style="color:#a0aec0">click</strong>'}</p>
-      </div>`;
-
-    const arena = document.getElementById('arena');
-    if (arena) {
-      arena.addEventListener('touchstart', handleArenaDown, { passive: false });
-      arena.addEventListener('touchmove', handleArenaMove, { passive: false });
-      arena.addEventListener('touchend', handleArenaUp, { passive: false });
-      arena.addEventListener('touchcancel', handleArenaUp, { passive: false });
-      arena.addEventListener('mousedown', handleArenaDown);
-      arena.addEventListener('mousemove', handleArenaMove);
-      arena.addEventListener('mouseup', handleArenaUp);
-      arena.addEventListener('click', handleArenaClick);
-    }
-  }
-
-  else if (S.phase === 'analyze') {
-    app.innerHTML = `
-      <div class="screen center">
-        <div style="width:48px;height:48px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite"></div>
-        <p style="font-size:14px;color:var(--text-2);margin-top:16px;font-weight:600">Analyzing motor signatures...</p>
-        <p style="font-size:12px;color:var(--text-3);margin-top:6px">${S.taps.length} taps · ${S.motionSamples.length} motion samples</p>
-      </div>`;
-  }
-
-  else if (S.phase === 'results' && S.analysis) {
-    renderResults();
-  }
-}
-
-function renderResults() {
-  const a = S.analysis;
-  const app = document.getElementById('app');
-  const score = parseFloat(a.composite);
-  const circumference = 2 * Math.PI * 56;
-  const offset = circumference * (1 - score / 100);
-
-  function metricRow(name, val, score01, note) {
-    const pct = Math.round((score01 || 0) * 100);
-    const color = pct >= 70 ? 'var(--good)' : pct >= 45 ? 'var(--accent)' : pct >= 25 ? 'var(--warn)' : 'var(--bad)';
-    return `<div class="metric-row">
-      <span class="metric-name">${name}</span>
-      <span style="display:flex;align-items:center;gap:6px">
-        <span class="metric-val">${val}</span>
-        <span class="metric-bar"><span class="metric-bar-fill" style="width:${pct}%;background:${color}"></span></span>
-      </span>
-    </div>`;
-  }
-
-  const d = a.detail;
-  const sm = a.summary;
-
-  app.innerHTML = `
-    <div class="screen top" style="overflow-y:auto">
-      <div class="phase-tag fade-in">Analysis Complete</div>
-      
-      <div class="score-ring fade-in">
-        <svg viewBox="0 0 120 120">
-          <circle cx="60" cy="60" r="56" fill="none" stroke="rgba(255,255,255,0.04)" stroke-width="5"/>
-          <circle cx="60" cy="60" r="56" fill="none" stroke="${a.verdictColor}" stroke-width="5"
-            stroke-dasharray="${circumference}" stroke-dashoffset="${offset}"
-            stroke-linecap="round" transform="rotate(-90 60 60)"
-            style="transition:stroke-dashoffset 1s ease"/>
-        </svg>
-        <div class="score-center">
-          <div class="score-num" style="color:${a.verdictColor}">${Math.round(score)}</div>
-          <div class="score-label" style="color:${a.verdictColor}">/ 100</div>
-        </div>
+  <div class="layout">
+    <section class="panel left">
+      <div class="topline">
+        <h1>Causal Perturbation Liveness (research prototype)</h1>
+        <div class="chip" id="seedChip">seed: -</div>
       </div>
-      
-      <div style="text-align:center;margin-bottom:20px" class="fade-in">
-        <div style="font-size:15px;font-weight:700;color:${a.verdictColor}">${a.verdict}</div>
-        <div style="font-size:11px;color:var(--text-3);margin-top:4px;font-family:var(--mono)">
-          ${sm.inputMode} · ${sm.hits}/${sm.totalCues} hit · ${sm.pathPoints} path pts · ${sm.motionSamples} motion · ${sm.durationSec}s
-        </div>
-      </div>
-
-      <div class="card fade-in">
-        <div class="card-label">Signal Dimensions</div>
-        ${metricRow('Reaction Time', d.rt.mean + 'ms ±' + d.rt.std, a.scores.reactionTime)}
-        ${metricRow('Spatial Accuracy', d.spatial.mean + 'px ±' + d.spatial.std, a.scores.spatialAccuracy)}
-        ${metricRow('Path Kinematics', d.pathK && d.pathK.hasData ? 'complexity ' + d.pathK.movementComplexity : 'no data', a.scores.pathKinematics)}
-        ${metricRow('Approach Dynamics', d.approach.decelRate > 0 ? (d.approach.decelRate * 100).toFixed(0) + '% decel' : 'no trail', a.scores.approachDynamics)}
-        ${metricRow('Rhythm Variance', 'CV ' + d.rhythm.cv, a.scores.rhythmVariance)}
-        ${metricRow('Motor Tremor', d.tremor.found ? d.tremor.freq + 'Hz accel' : (d.pathTremor && d.pathTremor.found ? d.pathTremor.freq + 'Hz path' : 'not detected'), a.scores.motorTremor)}
-        ${metricRow('Challenge Hit Rate', (a.scores.challengeCompliance * 100).toFixed(0) + '%', a.scores.challengeCompliance)}
-      </div>
-
-      <div class="card fade-in">
-        <div class="card-label">Reaction Time Distribution</div>
-        <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:6px">
-          <span style="color:var(--text-3)">n=${d.rt.n}</span>
-          <span style="color:var(--text-2)">skew: ${d.rt.skewness}</span>
-          <span class="tag ${d.rt.isHuman ? 'green' : 'amber'}" style="font-size:9px">${d.rt.isHuman ? 'Human-like' : 'Atypical'}</span>
-        </div>
-        ${renderHistogram(d.rt.raw, 50, 700, 12, 'var(--accent)')}
-        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-3);margin-top:4px;font-family:var(--mono)">
-          <span>p25: ${d.rt.p25}ms</span><span>med: ${d.rt.median}ms</span><span>p75: ${d.rt.p75}ms</span>
-        </div>
-      </div>
-
-      <div class="card fade-in">
-        <div class="card-label">Spatial Offset Distribution</div>
-        ${renderHistogram(d.spatial.raw, 0, 50, 10, 'var(--good)')}
-        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-3);margin-top:4px;font-family:var(--mono)">
-          <span>mean: ${d.spatial.mean}px</span><span>std: ${d.spatial.std}px</span>
-        </div>
-      </div>
-
-      <div class="card fade-in">
-        <div class="card-label">Inter-Tap Intervals</div>
-        <div style="font-size:11px;color:var(--text-3);margin-bottom:6px">
-          CV: ${d.rhythm.cv} · <span class="tag ${d.rhythm.isNatural ? 'green' : 'amber'}" style="font-size:9px">${d.rhythm.isNatural ? 'Natural rhythm' : 'Low variance'}</span>
-        </div>
-        ${renderHistogram(d.rhythm.raw, 200, 3000, 12, '#a78bfa')}
-      </div>
-
-      <div class="card fade-in">
-        <div class="card-label">Path Kinematics (continuous)</div>
-        <div style="font-size:11px;color:var(--text-2);line-height:1.7">
-          ${d.pathK && d.pathK.hasData ? `Samples: ${d.pathK.n} @ ${d.pathK.sampleHz}Hz<br>
-          Speed: mean ${d.pathK.speed.mean} px/s, std ${d.pathK.speed.std}<br>
-          Jerk std: ${d.pathK.jerk.std} · Curvature: ${d.pathK.curvature.mean}<br>
-          Complexity: <strong style="color:var(--text-1)">${d.pathK.movementComplexity}</strong><br>
-          Idle drift: ${d.pathK.idleDrift}px ± ${d.pathK.idleDriftStd}px<br>
-          Approach decel: ${d.pathK.approachDecelRate}` : 'Insufficient path data'}
-        </div>
-      </div>
-
-      <div class="card fade-in">
-        <div class="card-label">Approach Trajectories</div>
-        <div style="font-size:11px;color:var(--text-2);line-height:1.6">
-          Trails analyzed: ${d.approach.trailCount}/${d.approach.totalHits} hits<br>
-          Deceleration rate: ${(d.approach.decelRate*100).toFixed(0)}%<br>
-          Avg curvature: ${d.approach.avgCurvature}<br>
-          Speed variability: ${d.approach.speedVariability} px/s<br>
-          <span class="tag ${d.approach.isNatural ? 'green' : 'amber'}" style="font-size:9px;margin-top:4px">${d.approach.isNatural ? 'Natural motor dynamics' : 'Limited trail data'}</span>
-        </div>
-      </div>
-
-      <div class="card fade-in">
-        <div class="card-label">Tremor Analysis</div>
-        <div style="font-size:11px;color:var(--text-2);line-height:1.6">
-          <strong>Accel:</strong> ${d.tremor.found ? d.tremor.freq + 'Hz (r=' + d.tremor.corr + ') @' + d.tremor.sampleHz + 'Hz' : (d.tremor.note || 'N/A')} · ${d.tremor.n || 0} samples<br>
-          <strong>Path:</strong> ${d.pathTremor && d.pathTremor.found ? d.pathTremor.freq + 'Hz (r=' + d.pathTremor.corr + ') @' + d.pathTremor.sampleHz + 'Hz' : (d.pathTremor && d.pathTremor.note || 'N/A')}${d.pathTremor && d.pathTremor.n ? ' · ' + d.pathTremor.n + ' samples' : ''}
-        </div>
-      </div>
-
-      <div style="display:flex;gap:10px;margin-top:20px;flex-wrap:wrap;justify-content:center" class="fade-in">
-        <button class="btn primary" onclick="exportResults()">Export Data</button>
-        <button class="btn ghost" onclick="S.phase='intro';render()">New Session</button>
-      </div>
-      <p style="font-size:10px;color:var(--text-3);margin-top:12px;text-align:center;max-width:280px">
-        Full export includes raw taps, pointer trail, motion data, challenge schedule, and per-cue results.
+      <p class="small">
+        This test deliberately injects tiny unpredictable target perturbations and scores <b>causal motor recovery</b>.
+        It avoids a heavy data flywheel by using physiology-informed checks instead of a black-box classifier.
       </p>
-    </div>`;
-}
 
-function renderHistogram(values, minBin, maxBin, numBins, color) {
-  if (!values || values.length < 2) return '<div style="font-size:11px;color:var(--text-3)">Insufficient data</div>';
-  const binWidth = (maxBin - minBin) / numBins;
-  const bins = new Array(numBins).fill(0);
-  for (const v of values) {
-    const idx = Math.floor((v - minBin) / binWidth);
-    if (idx >= 0 && idx < numBins) bins[idx]++;
-  }
-  const maxCount = Math.max(1, ...bins);
-  const barWidth = 100 / numBins;
-  let html = '<div style="display:flex;align-items:flex-end;height:40px;gap:1px">';
-  for (let i = 0; i < numBins; i++) {
-    const h = Math.max(1, (bins[i] / maxCount) * 100);
-    html += `<div style="flex:1;height:${h}%;background:${color};opacity:${bins[i] > 0 ? 0.6 : 0.1};border-radius:1px 1px 0 0;min-width:2px" title="${bins[i]} in ${(minBin + i*binWidth).toFixed(0)}-${(minBin + (i+1)*binWidth).toFixed(0)}"></div>`;
-  }
-  html += '</div>';
-  return html;
-}
+      <div class="controls">
+        <button id="startBtn" class="primary">Start 22s test</button>
+        <button id="resetBtn" class="ghost">Reset</button>
+        <button id="exportBtn" class="ghost" disabled>Export session JSON</button>
+        <span class="status" id="statusLine">idle</span>
+        <span class="status" id="serverLine">backend: local-only</span>
+      </div>
 
-// ===== INIT =====
-window.startChallenge = startChallenge;
-window.exportResults = exportResults;
-window.S = S;
+      <div class="progress" aria-hidden="true"><div id="progressFill"></div></div>
 
-document.addEventListener('DOMContentLoaded', () => {
-  detectDevice();
-  render();
-});
-</script>
+      <div class="arena-wrap">
+        <canvas id="arena" aria-label="Liveness challenge arena"></canvas>
+        <div class="hud">
+          <div class="hud-box">
+            <div class="hud-label">Time</div>
+            <div class="hud-value" id="hudTime">0.0s</div>
+          </div>
+          <div class="hud-box">
+            <div class="hud-label">Perturbations</div>
+            <div class="hud-value" id="hudPerturb">0</div>
+          </div>
+          <div class="hud-box">
+            <div class="hud-label">Inside Target</div>
+            <div class="hud-value" id="hudInside">0%</div>
+          </div>
+          <div class="hud-box">
+            <div class="hud-label">Pointer Hz</div>
+            <div class="hud-value" id="hudHz">0</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="legend">
+        <div><b>What to do:</b> keep the pointer inside the moving teal target. Recover quickly when it jitters.</div>
+        <div><b>Why this works:</b> scripted paths can mimic style, but causal correction latency and gain under hidden perturbation are harder to fake in real time.</div>
+      </div>
+    </section>
+
+    <aside class="panel right">
+      <div class="score">
+        <div class="score-top">
+          <div class="score-num" id="scoreNum">--</div>
+          <div class="verdict" id="verdictLine">No run yet</div>
+        </div>
+        <p class="small" id="summaryLine">Run the test to compute an explainable score.</p>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Signal</th>
+            <th>Value</th>
+            <th>Contribution</th>
+          </tr>
+        </thead>
+        <tbody id="metricsBody">
+          <tr><td colspan="3" class="small">No metrics yet.</td></tr>
+        </tbody>
+      </table>
+
+      <div>
+        <div class="small" style="margin-bottom:6px;">Event log</div>
+        <div class="mono" id="eventLog">Waiting for first run.</div>
+      </div>
+
+      <div class="footnote">
+        Use this as one signal in a layered defense. Do not block users solely from one short challenge.
+      </div>
+    </aside>
+  </div>
+
+  <script>
+    (function () {
+      const CONFIG = {
+        durationMs: 22000,
+        sampleHzCap: 120,
+        canvasPad: 34,
+        perturbation: {
+          minGapMs: 1050,
+          maxGapMs: 2150,
+          minShiftPx: 18,
+          maxShiftPx: 44,
+          decayMs: 760
+        },
+        difficulty: [
+          { start: 0, end: 7200, speed: 0.42, radius: 33, label: "low" },
+          { start: 7200, end: 14500, speed: 0.62, radius: 27, label: "mid" },
+          { start: 14500, end: 22000, speed: 0.88, radius: 21, label: "high" }
+        ]
+      };
+
+      const arena = document.getElementById("arena");
+      const ctx = arena.getContext("2d", { alpha: false });
+
+      const statusLine = document.getElementById("statusLine");
+      const serverLine = document.getElementById("serverLine");
+      const seedChip = document.getElementById("seedChip");
+      const progressFill = document.getElementById("progressFill");
+
+      const hudTime = document.getElementById("hudTime");
+      const hudPerturb = document.getElementById("hudPerturb");
+      const hudInside = document.getElementById("hudInside");
+      const hudHz = document.getElementById("hudHz");
+
+      const startBtn = document.getElementById("startBtn");
+      const resetBtn = document.getElementById("resetBtn");
+      const exportBtn = document.getElementById("exportBtn");
+
+      const scoreNum = document.getElementById("scoreNum");
+      const verdictLine = document.getElementById("verdictLine");
+      const summaryLine = document.getElementById("summaryLine");
+      const metricsBody = document.getElementById("metricsBody");
+      const eventLog = document.getElementById("eventLog");
+
+      const state = {
+        phase: "idle",
+        seed: 0,
+        rng: null,
+        startMs: 0,
+        elapsedMs: 0,
+        frameId: 0,
+        nextPerturbAt: Infinity,
+        currentImpulse: null,
+        lastFrameMs: 0,
+        bounds: { w: 0, h: 0 },
+        pointer: { x: 0, y: 0, has: false, active: false },
+        target: { x: 0, y: 0, radius: 30, seg: "low" },
+        samples: [],
+        frameSeries: [],
+        perturbations: [],
+        corrections: [],
+        insideMs: 0,
+        totalMs: 0,
+        challenge: { mode: "local", id: null, token: null, issuedAt: 0, expiresAt: 0 },
+        verification: null,
+        finalReport: null
+      };
+
+      function clamp(v, lo, hi) {
+        return Math.max(lo, Math.min(hi, v));
+      }
+
+      function lerp(a, b, t) {
+        return a + (b - a) * t;
+      }
+
+      function mulberry32(seed) {
+        let t = seed >>> 0;
+        return function () {
+          t += 0x6d2b79f5;
+          let r = Math.imul(t ^ (t >>> 15), 1 | t);
+          r ^= r + Math.imul(r ^ (r >>> 7), 61 | r);
+          return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+        };
+      }
+
+      function makeSeed() {
+        const arr = new Uint32Array(2);
+        crypto.getRandomValues(arr);
+        return (arr[0] ^ (arr[1] << 1)) >>> 0;
+      }
+
+      function mean(arr) {
+        if (!arr.length) return 0;
+        let s = 0;
+        for (const v of arr) s += v;
+        return s / arr.length;
+      }
+
+      function percentile(arr, p) {
+        if (!arr.length) return 0;
+        const sorted = [...arr].sort((a, b) => a - b);
+        const idx = clamp((sorted.length - 1) * p, 0, sorted.length - 1);
+        const lo = Math.floor(idx);
+        const hi = Math.ceil(idx);
+        if (lo === hi) return sorted[lo];
+        const t = idx - lo;
+        return sorted[lo] * (1 - t) + sorted[hi] * t;
+      }
+
+      function format(n, digits = 1) {
+        if (!Number.isFinite(n)) return "-";
+        return n.toFixed(digits);
+      }
+
+      function currentDifficulty(t) {
+        for (const seg of CONFIG.difficulty) {
+          if (t >= seg.start && t < seg.end) return seg;
+        }
+        return CONFIG.difficulty[CONFIG.difficulty.length - 1];
+      }
+
+      function updateCanvasSize() {
+        const rect = arena.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        arena.width = Math.max(1, Math.floor(rect.width * dpr));
+        arena.height = Math.max(1, Math.floor(rect.height * dpr));
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        state.bounds.w = rect.width;
+        state.bounds.h = rect.height;
+      }
+
+      function resetStateForRun() {
+        if (state.frameId) cancelAnimationFrame(state.frameId);
+        state.phase = "idle";
+        state.seed = 0;
+        state.rng = null;
+        state.startMs = 0;
+        state.elapsedMs = 0;
+        state.frameId = 0;
+        state.nextPerturbAt = Infinity;
+        state.currentImpulse = null;
+        state.lastFrameMs = 0;
+
+        state.pointer.x = state.bounds.w / 2;
+        state.pointer.y = state.bounds.h / 2;
+        state.pointer.has = false;
+        state.pointer.active = false;
+
+        state.target.x = state.bounds.w / 2;
+        state.target.y = state.bounds.h / 2;
+        state.target.radius = 30;
+        state.target.seg = "low";
+
+        state.samples = [];
+        state.frameSeries = [];
+        state.perturbations = [];
+        state.corrections = [];
+        state.insideMs = 0;
+        state.totalMs = 0;
+        state.challenge = { mode: "local", id: null, token: null, issuedAt: 0, expiresAt: 0 };
+        state.verification = null;
+        state.finalReport = null;
+
+        progressFill.style.width = "0%";
+        seedChip.textContent = "seed: -";
+        hudTime.textContent = "0.0s";
+        hudPerturb.textContent = "0";
+        hudInside.textContent = "0%";
+        hudHz.textContent = "0";
+        statusLine.textContent = "idle";
+        serverLine.textContent = "backend: local-only";
+
+        scoreNum.textContent = "--";
+        scoreNum.style.color = "#1c1d1f";
+        verdictLine.textContent = "No run yet";
+        verdictLine.style.color = "#1c1d1f";
+        summaryLine.textContent = "Run the test to compute an explainable score.";
+        metricsBody.innerHTML = '<tr><td colspan="3" class="small">No metrics yet.</td></tr>';
+        eventLog.textContent = "Waiting for first run.";
+
+        exportBtn.disabled = true;
+      }
+
+      async function fetchChallenge() {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 2800);
+        try {
+          const res = await fetch("/api/challenge", {
+            method: "GET",
+            cache: "no-store",
+            headers: { "Accept": "application/json" },
+            signal: controller.signal
+          });
+          if (!res.ok) throw new Error("challenge_http_" + res.status);
+          const data = await res.json();
+          if (!data || !data.ok || !data.challenge || !data.token) throw new Error("challenge_shape");
+          const c = data.challenge;
+          if (!Number.isFinite(c.seed)) throw new Error("challenge_seed");
+          return {
+            mode: "server",
+            id: c.challengeId,
+            token: data.token,
+            issuedAt: c.issuedAt,
+            expiresAt: c.expiresAt,
+            seed: c.seed >>> 0
+          };
+        } catch (_err) {
+          return {
+            mode: "local",
+            id: null,
+            token: null,
+            issuedAt: Date.now(),
+            expiresAt: Date.now() + 120000,
+            seed: makeSeed()
+          };
+        } finally {
+          clearTimeout(timeout);
+        }
+      }
+
+      function compactReportForServer(report) {
+        return {
+          createdAt: report.createdAt,
+          digest: report.digest,
+          score: report.score,
+          summary: report.summary,
+          metrics: report.metrics.map(m => ({ key: m.key, value: m.value, contrib: m.contrib })),
+          perturbations: report.perturbations,
+          corrections: report.corrections
+        };
+      }
+
+      async function verifyReportWithServer(report) {
+        if (!state.challenge.token) {
+          return { ok: false, verified: false, mode: "local", reason: "unsigned_local_challenge" };
+        }
+        try {
+          const res = await fetch("/api/verify", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              token: state.challenge.token,
+              report: compactReportForServer(report)
+            })
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            return {
+              ok: false,
+              verified: false,
+              mode: "server",
+              reason: data.error || ("verify_http_" + res.status)
+            };
+          }
+          return {
+            ok: !!data.ok,
+            verified: !!data.verified,
+            mode: "server",
+            reason: data.reason || "ok",
+            challengeId: data.challengeId || state.challenge.id,
+            receipt: data.receipt || null
+          };
+        } catch (_err) {
+          return { ok: false, verified: false, mode: "server", reason: "verify_network_error" };
+        }
+      }
+
+      function scheduleNextPerturb(t) {
+        const gap = lerp(CONFIG.perturbation.minGapMs, CONFIG.perturbation.maxGapMs, state.rng());
+        state.nextPerturbAt = t + gap;
+      }
+
+      function injectPerturbation(t) {
+        const angle = state.rng() * Math.PI * 2;
+        const mag = lerp(CONFIG.perturbation.minShiftPx, CONFIG.perturbation.maxShiftPx, state.rng());
+        const dx = Math.cos(angle) * mag;
+        const dy = Math.sin(angle) * mag;
+        const event = {
+          id: state.perturbations.length + 1,
+          t,
+          dx,
+          dy,
+          mag,
+          seg: state.target.seg
+        };
+        state.perturbations.push(event);
+        state.currentImpulse = {
+          eventId: event.id,
+          dx,
+          dy,
+          start: t,
+          decayMs: CONFIG.perturbation.decayMs
+        };
+      }
+
+      function targetPositionAt(t) {
+        const seg = currentDifficulty(t);
+        const pad = CONFIG.canvasPad;
+        const w = state.bounds.w;
+        const h = state.bounds.h;
+        const ax = Math.max(45, (w * 0.5) - pad);
+        const ay = Math.max(45, (h * 0.5) - pad);
+
+        const omega = 0.00115 * seg.speed;
+        const xBase = w * 0.5 + Math.sin((t * omega * 1.22) + 0.7) * ax * 0.92;
+        const yBase = h * 0.5 + Math.sin((t * omega * 1.81) + 1.9) * ay * 0.84;
+
+        let ox = 0;
+        let oy = 0;
+        if (state.currentImpulse) {
+          const age = t - state.currentImpulse.start;
+          if (age >= 0 && age <= state.currentImpulse.decayMs) {
+            const d = Math.exp(-age / 260);
+            ox = state.currentImpulse.dx * d;
+            oy = state.currentImpulse.dy * d;
+          }
+        }
+
+        return {
+          x: clamp(xBase + ox, pad, w - pad),
+          y: clamp(yBase + oy, pad, h - pad),
+          r: seg.radius,
+          seg: seg.label
+        };
+      }
+
+      function recordPointerSample(ts, x, y) {
+        if (state.phase !== "running") return;
+        const t = ts - state.startMs;
+        if (t < 0 || t > CONFIG.durationMs + 100) return;
+
+        const prev = state.samples[state.samples.length - 1];
+        const minDt = 1000 / CONFIG.sampleHzCap;
+        if (prev && (t - prev.t) < minDt) return;
+
+        let vx = 0;
+        let vy = 0;
+        let speed = 0;
+        if (prev) {
+          const dt = (t - prev.t) / 1000;
+          if (dt > 0) {
+            vx = (x - prev.x) / dt;
+            vy = (y - prev.y) / dt;
+            speed = Math.hypot(vx, vy);
+          }
+        }
+
+        state.samples.push({ t, x, y, vx, vy, speed });
+      }
+
+      function pointerPosition(e) {
+        const rect = arena.getBoundingClientRect();
+        return {
+          x: clamp(e.clientX - rect.left, 0, rect.width),
+          y: clamp(e.clientY - rect.top, 0, rect.height)
+        };
+      }
+
+      function onPointerMove(e) {
+        if (state.phase !== "running") return;
+        if (e.cancelable) e.preventDefault();
+        const p = pointerPosition(e);
+        state.pointer.x = p.x;
+        state.pointer.y = p.y;
+        state.pointer.has = true;
+        recordPointerSample(performance.now(), p.x, p.y);
+      }
+
+      function onPointerDown(e) {
+        if (e.cancelable) e.preventDefault();
+        state.pointer.active = true;
+        if (typeof arena.setPointerCapture === "function") {
+          try { arena.setPointerCapture(e.pointerId); } catch (_err) {}
+        }
+        onPointerMove(e);
+      }
+
+      function onPointerUp() {
+        state.pointer.active = false;
+      }
+
+      function drawGrid(w, h) {
+        ctx.fillStyle = "#f2f4f8";
+        ctx.fillRect(0, 0, w, h);
+
+        ctx.strokeStyle = "rgba(40, 52, 68, 0.08)";
+        ctx.lineWidth = 1;
+
+        const gap = 28;
+        for (let x = 0; x <= w; x += gap) {
+          ctx.beginPath();
+          ctx.moveTo(x + 0.5, 0);
+          ctx.lineTo(x + 0.5, h);
+          ctx.stroke();
+        }
+        for (let y = 0; y <= h; y += gap) {
+          ctx.beginPath();
+          ctx.moveTo(0, y + 0.5);
+          ctx.lineTo(w, y + 0.5);
+          ctx.stroke();
+        }
+      }
+
+      function drawTrail() {
+        const pts = state.samples;
+        if (pts.length < 2) return;
+        const max = 120;
+        const start = Math.max(0, pts.length - max);
+
+        ctx.beginPath();
+        for (let i = start; i < pts.length; i++) {
+          const p = pts[i];
+          if (i === start) ctx.moveTo(p.x, p.y);
+          else ctx.lineTo(p.x, p.y);
+        }
+        ctx.strokeStyle = "rgba(15, 118, 110, 0.4)";
+        ctx.lineWidth = 1.7;
+        ctx.stroke();
+      }
+
+      function drawTarget() {
+        const t = state.target;
+        ctx.beginPath();
+        ctx.arc(t.x, t.y, t.radius + 4, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(15, 118, 110, 0.1)";
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.arc(t.x, t.y, t.radius, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(15, 118, 110, 0.2)";
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.arc(t.x, t.y, t.radius, 0, Math.PI * 2);
+        ctx.strokeStyle = "rgba(15, 118, 110, 0.95)";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+
+      function drawPointer() {
+        if (!state.pointer.has) return;
+        ctx.beginPath();
+        ctx.arc(state.pointer.x, state.pointer.y, 4.5, 0, Math.PI * 2);
+        ctx.fillStyle = "#0b1624";
+        ctx.fill();
+      }
+
+      function drawScene() {
+        const w = state.bounds.w;
+        const h = state.bounds.h;
+        drawGrid(w, h);
+        drawTrail();
+        drawTarget();
+        drawPointer();
+      }
+
+      function tick(now) {
+        if (state.phase !== "running") return;
+        const t = now - state.startMs;
+        state.elapsedMs = t;
+
+        if (t >= CONFIG.durationMs) {
+          finishRun();
+          return;
+        }
+
+        if (!state.lastFrameMs) state.lastFrameMs = t;
+        const dt = Math.max(0, t - state.lastFrameMs);
+        state.lastFrameMs = t;
+
+        if (t >= state.nextPerturbAt && t < CONFIG.durationMs - 900) {
+          injectPerturbation(t);
+          scheduleNextPerturb(t);
+        }
+
+        const tp = targetPositionAt(t);
+        state.target.x = tp.x;
+        state.target.y = tp.y;
+        state.target.radius = tp.r;
+        state.target.seg = tp.seg;
+
+        let err = null;
+        if (state.pointer.has) {
+          err = Math.hypot(state.pointer.x - tp.x, state.pointer.y - tp.y);
+          state.totalMs += dt;
+          if (err <= tp.r) state.insideMs += dt;
+        }
+
+        state.frameSeries.push({ t, err, seg: tp.seg, tx: tp.x, ty: tp.y, r: tp.r });
+
+        drawScene();
+        updateHud();
+
+        state.frameId = requestAnimationFrame(tick);
+      }
+
+      function updateHud() {
+        const tSec = state.elapsedMs / 1000;
+        hudTime.textContent = tSec.toFixed(1) + "s";
+        hudPerturb.textContent = String(state.perturbations.length);
+
+        const inside = state.totalMs > 0 ? (state.insideMs / state.totalMs) * 100 : 0;
+        hudInside.textContent = inside.toFixed(0) + "%";
+
+        const hz = estimateSampleHz();
+        hudHz.textContent = hz.toFixed(0);
+
+        progressFill.style.width = ((state.elapsedMs / CONFIG.durationMs) * 100).toFixed(2) + "%";
+      }
+
+      function estimateSampleHz() {
+        const s = state.samples;
+        if (s.length < 6) return 0;
+        const from = Math.max(1, s.length - 40);
+        const dts = [];
+        for (let i = from; i < s.length; i++) {
+          dts.push(s[i].t - s[i - 1].t);
+        }
+        const m = mean(dts);
+        return m > 0 ? 1000 / m : 0;
+      }
+
+      function nearestAtOrBefore(series, t) {
+        let out = null;
+        for (let i = 0; i < series.length; i++) {
+          if (series[i].t <= t) out = series[i];
+          else break;
+        }
+        return out;
+      }
+
+      function nearestValue(series, t, key) {
+        if (!series.length) return null;
+        let best = series[0];
+        let bestDiff = Math.abs(series[0].t - t);
+        for (let i = 1; i < series.length; i++) {
+          const d = Math.abs(series[i].t - t);
+          if (d < bestDiff) {
+            best = series[i];
+            bestDiff = d;
+          }
+        }
+        return best[key];
+      }
+
+      function analyzeCorrections() {
+        const corrections = [];
+        const s = state.samples;
+        const f = state.frameSeries;
+
+        for (const p of state.perturbations) {
+          const base = nearestAtOrBefore(s, p.t);
+          if (!base) {
+            corrections.push({ id: p.id, latencyMs: null, gain: 0, submoves: 0, seg: p.seg });
+            continue;
+          }
+
+          const ux = p.dx / Math.max(1e-6, p.mag);
+          const uy = p.dy / Math.max(1e-6, p.mag);
+
+          let latency = null;
+          let lastAx = null;
+          let signChanges = 0;
+
+          for (const q of s) {
+            if (q.t < p.t + 55) continue;
+            if (q.t > p.t + 900) break;
+            const dispProj = ((q.x - base.x) * ux) + ((q.y - base.y) * uy);
+            const velProj = (q.vx * ux) + (q.vy * uy);
+            if (latency === null && dispProj > 3 && velProj > 25) {
+              latency = q.t - p.t;
+            }
+
+            const accel = velProj;
+            if (lastAx !== null) {
+              const prevSign = Math.sign(lastAx);
+              const nowSign = Math.sign(accel);
+              if (prevSign !== 0 && nowSign !== 0 && prevSign !== nowSign) signChanges += 1;
+            }
+            lastAx = accel;
+          }
+
+          const e0 = nearestValue(f, p.t + 120, "err");
+          let emin = Infinity;
+          for (const row of f) {
+            if (row.err === null) continue;
+            if (row.t < p.t + 220 || row.t > p.t + 900) continue;
+            if (row.err < emin) emin = row.err;
+          }
+          const gain = (Number.isFinite(e0) && Number.isFinite(emin)) ? (e0 - emin) / Math.max(1, e0) : 0;
+
+          corrections.push({
+            id: p.id,
+            latencyMs: latency,
+            gain,
+            submoves: signChanges,
+            seg: p.seg
+          });
+        }
+
+        return corrections;
+      }
+
+      function countTeleports() {
+        let count = 0;
+        const s = state.samples;
+        for (let i = 1; i < s.length; i++) {
+          const dt = s[i].t - s[i - 1].t;
+          const d = Math.hypot(s[i].x - s[i - 1].x, s[i].y - s[i - 1].y);
+          if (dt < 18 && d > 50) count += 1;
+        }
+        return count;
+      }
+
+      function segmentStats() {
+        const map = {
+          low: { errors: [], speeds: [] },
+          mid: { errors: [], speeds: [] },
+          high: { errors: [], speeds: [] }
+        };
+
+        for (const row of state.frameSeries) {
+          if (row.err !== null) map[row.seg].errors.push(row.err);
+        }
+        for (const s of state.samples) {
+          const seg = currentDifficulty(s.t).label;
+          if (Number.isFinite(s.speed)) map[seg].speeds.push(s.speed);
+        }
+
+        return {
+          low: { e: mean(map.low.errors), v: mean(map.low.speeds) },
+          mid: { e: mean(map.mid.errors), v: mean(map.mid.speeds) },
+          high: { e: mean(map.high.errors), v: mean(map.high.speeds) }
+        };
+      }
+
+      function scoreWindow(v, idealMin, idealMax, hardMin, hardMax) {
+        if (!Number.isFinite(v)) return 0;
+        if (v >= idealMin && v <= idealMax) return 1;
+        if (v < hardMin || v > hardMax) return 0;
+        if (v < idealMin) return (v - hardMin) / Math.max(1e-6, idealMin - hardMin);
+        return (hardMax - v) / Math.max(1e-6, hardMax - idealMax);
+      }
+
+      function scoreRange(v, lo, hi) {
+        if (!Number.isFinite(v)) return 0;
+        if (v <= lo) return 0;
+        if (v >= hi) return 1;
+        return (v - lo) / (hi - lo);
+      }
+
+      function classify(score) {
+        if (score >= 72) return { label: "Likely human", color: "var(--good)" };
+        if (score >= 48) return { label: "Inconclusive", color: "var(--warn)" };
+        return { label: "Likely automated", color: "var(--bad)" };
+      }
+
+      async function buildDigest(payload) {
+        try {
+          const data = new TextEncoder().encode(JSON.stringify(payload));
+          const hash = await crypto.subtle.digest("SHA-256", data);
+          const bytes = Array.from(new Uint8Array(hash));
+          return bytes.map(b => b.toString(16).padStart(2, "0")).join("").slice(0, 24);
+        } catch (_err) {
+          return "unavailable";
+        }
+      }
+
+      async function computeReport() {
+        const corrections = analyzeCorrections();
+        state.corrections = corrections;
+
+        const validLat = corrections
+          .map(c => c.latencyMs)
+          .filter(v => Number.isFinite(v));
+
+        const gains = corrections.map(c => c.gain).filter(v => Number.isFinite(v));
+        const submoves = corrections.map(c => c.submoves).filter(v => Number.isFinite(v));
+
+        const latencyHitRate = state.perturbations.length > 0 ? validLat.length / state.perturbations.length : 0;
+        const latencyMedian = percentile(validLat, 0.5);
+        const latencyIqr = percentile(validLat, 0.75) - percentile(validLat, 0.25);
+
+        const gainMean = mean(gains);
+        const subMedian = percentile(submoves, 0.5);
+
+        const dwellRatio = state.totalMs > 0 ? (state.insideMs / state.totalMs) : 0;
+
+        const seg = segmentStats();
+        const speedMonotonic = (seg.high.v > seg.mid.v) && (seg.mid.v > seg.low.v * 0.85);
+        const errorMonotonic = (seg.high.e >= seg.mid.e * 0.9) && (seg.mid.e >= seg.low.e * 0.85);
+        const couplingScore = (speedMonotonic ? 0.6 : 0) + (errorMonotonic ? 0.4 : 0);
+
+        const teleports = countTeleports();
+        const ultraFast = validLat.filter(v => v < 75).length;
+
+        const sLatencyRate = scoreRange(latencyHitRate, 0.30, 0.95);
+        const sLatencyMedian = scoreWindow(latencyMedian, 120, 360, 80, 550);
+        const sLatencySpread = scoreWindow(latencyIqr, 20, 190, 6, 280);
+        const sGain = scoreRange(gainMean, 0.14, 0.74);
+        const sDwell = scoreRange(dwellRatio, 0.24, 0.86);
+        const sSubmoves = scoreWindow(subMedian, 1.0, 6.0, 0.0, 12.0);
+
+        const rawScore = (
+          (sLatencyRate * 25) +
+          (sLatencyMedian * 20) +
+          (sLatencySpread * 10) +
+          (sGain * 15) +
+          (sDwell * 10) +
+          (couplingScore * 10) +
+          (sSubmoves * 10)
+        );
+
+        const penalty = (teleports * 6) + (ultraFast * 8);
+        const score = clamp(rawScore - penalty, 0, 100);
+
+        const metrics = [
+          {
+            key: "Correction hit-rate",
+            value: `${format(latencyHitRate * 100, 0)}%`,
+            contrib: format(sLatencyRate * 25, 1),
+            note: "How many perturbations produced a measurable causal correction"
+          },
+          {
+            key: "Median correction latency",
+            value: `${format(latencyMedian, 0)} ms`,
+            contrib: format(sLatencyMedian * 20, 1),
+            note: "Human online correction typically appears after sensory-motor delay"
+          },
+          {
+            key: "Latency variability (IQR)",
+            value: `${format(latencyIqr, 0)} ms`,
+            contrib: format(sLatencySpread * 10, 1),
+            note: "Too deterministic can indicate scripted behavior"
+          },
+          {
+            key: "Error-reduction gain",
+            value: format(gainMean, 2),
+            contrib: format(sGain * 15, 1),
+            note: "How strongly error shrinks after a perturbation"
+          },
+          {
+            key: "In-target dwell",
+            value: `${format(dwellRatio * 100, 0)}%`,
+            contrib: format(sDwell * 10, 1),
+            note: "Compliance and control stability"
+          },
+          {
+            key: "Speed-accuracy coupling",
+            value: format(couplingScore, 2),
+            contrib: format(couplingScore * 10, 1),
+            note: "Expected coupling when difficulty rises"
+          },
+          {
+            key: "Submovement richness",
+            value: format(subMedian, 1),
+            contrib: format(sSubmoves * 10, 1),
+            note: "Sign changes in correction dynamics"
+          },
+          {
+            key: "Dynamic penalties",
+            value: `${teleports} teleports, ${ultraFast} <75ms`,
+            contrib: `-${format(penalty, 1)}`,
+            note: "Impossible or near-impossible response artifacts"
+          }
+        ];
+
+        const verdict = classify(score);
+
+        const payloadForHash = {
+          seed: state.seed,
+          perturbations: state.perturbations,
+          corrections,
+          sampleCount: state.samples.length,
+          frameCount: state.frameSeries.length,
+          metrics,
+          score
+        };
+
+        const challengeDigest = await buildDigest(payloadForHash);
+
+        return {
+          createdAt: new Date().toISOString(),
+          config: CONFIG,
+          seed: state.seed,
+          digest: challengeDigest,
+          score,
+          verdict,
+          metrics,
+          summary: {
+            durationMs: CONFIG.durationMs,
+            sampleCount: state.samples.length,
+            frameCount: state.frameSeries.length,
+            perturbationCount: state.perturbations.length,
+            correctionCount: validLat.length,
+            meanSampleHz: estimateSampleHz(),
+            segmentStats: seg
+          },
+          perturbations: state.perturbations,
+          corrections,
+          pointerSamples: state.samples
+        };
+      }
+
+      function updateMetricsTable(metrics) {
+        metricsBody.innerHTML = "";
+        for (const m of metrics) {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td>
+              <div>${m.key}</div>
+              <div class="small">${m.note}</div>
+            </td>
+            <td class="mono">${m.value}</td>
+            <td class="mono">${m.contrib}</td>
+          `;
+          metricsBody.appendChild(tr);
+        }
+      }
+
+      function updateLog(report) {
+        const lines = [];
+        lines.push(`digest=${report.digest}`);
+        lines.push(`seed=${report.seed}`);
+        lines.push(`score=${report.score.toFixed(1)} verdict=${report.verdict.label}`);
+        if (report.serverVerification) {
+          lines.push(`server=${report.serverVerification.mode} verified=${report.serverVerification.verified} reason=${report.serverVerification.reason}`);
+        }
+        lines.push(`perturbations=${report.summary.perturbationCount} corrections=${report.summary.correctionCount}`);
+        lines.push("--- perturbation events ---");
+        for (const p of report.perturbations) {
+          lines.push(`p${p.id} t=${p.t.toFixed(0)}ms shift=(${p.dx.toFixed(1)}, ${p.dy.toFixed(1)}) seg=${p.seg}`);
+        }
+        eventLog.textContent = lines.join("\n");
+      }
+
+      async function finishRun() {
+        state.phase = "analyzing";
+        cancelAnimationFrame(state.frameId);
+        state.frameId = 0;
+        progressFill.style.width = "100%";
+        statusLine.textContent = "analyzing";
+
+        const report = await computeReport();
+        const serverVerification = await verifyReportWithServer(report);
+        report.challenge = state.challenge;
+        report.serverVerification = serverVerification;
+        state.finalReport = report;
+        state.verification = serverVerification;
+
+        scoreNum.textContent = report.score.toFixed(1);
+        scoreNum.style.color = report.verdict.color;
+        verdictLine.textContent = report.verdict.label;
+        verdictLine.style.color = report.verdict.color;
+
+        let verifyText = "local unsigned";
+        if (serverVerification.mode === "server") {
+          verifyText = serverVerification.verified ? "server verified" : `server reject (${serverVerification.reason})`;
+        }
+        summaryLine.textContent =
+          `digest ${report.digest} | ${report.summary.perturbationCount} perturbations | ${report.summary.sampleCount} pointer samples | ${verifyText}`;
+
+        if (serverVerification.mode === "server") {
+          if (serverVerification.verified) {
+            serverLine.textContent = `backend: verified challenge ${String(serverVerification.challengeId || "").slice(0, 8)}`;
+          } else {
+            serverLine.textContent = `backend: rejected (${serverVerification.reason})`;
+          }
+        } else {
+          serverLine.textContent = "backend: local fallback (unsigned)";
+        }
+
+        updateMetricsTable(report.metrics);
+        updateLog(report);
+
+        statusLine.textContent = "done";
+        state.phase = "done";
+        exportBtn.disabled = false;
+        startBtn.disabled = false;
+      }
+
+      async function startRun() {
+        if (state.phase === "running") return;
+        resetStateForRun();
+        statusLine.textContent = "requesting challenge";
+        startBtn.disabled = true;
+
+        const challenge = await fetchChallenge();
+        state.challenge = challenge;
+        state.seed = challenge.seed;
+        state.rng = mulberry32(state.seed);
+        state.startMs = performance.now();
+        state.phase = "running";
+        state.lastFrameMs = 0;
+
+        seedChip.textContent = `seed: ${state.seed}`;
+        if (challenge.mode === "server") {
+          serverLine.textContent = `backend: signed challenge ${String(challenge.id || "").slice(0, 8)}`;
+        } else {
+          serverLine.textContent = "backend: local fallback (unsigned)";
+        }
+        statusLine.textContent = "running";
+
+        scheduleNextPerturb(0);
+        state.frameId = requestAnimationFrame(tick);
+      }
+
+      function resetAll() {
+        resetStateForRun();
+        drawScene();
+        startBtn.disabled = false;
+      }
+
+      function exportReport() {
+        if (!state.finalReport) return;
+        const blob = new Blob([JSON.stringify(state.finalReport, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `cpl-session-${Date.now()}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+
+      startBtn.addEventListener("click", startRun);
+      resetBtn.addEventListener("click", resetAll);
+      exportBtn.addEventListener("click", exportReport);
+
+      arena.addEventListener("pointermove", onPointerMove, { passive: false });
+      arena.addEventListener("pointerdown", onPointerDown, { passive: false });
+      arena.addEventListener("pointerup", onPointerUp, { passive: true });
+      arena.addEventListener("pointercancel", onPointerUp, { passive: true });
+      arena.addEventListener("pointerleave", onPointerUp, { passive: true });
+
+      if ("onpointerrawupdate" in window) {
+        arena.addEventListener("pointerrawupdate", onPointerMove, { passive: false });
+      }
+
+      window.addEventListener("resize", () => {
+        updateCanvasSize();
+        drawScene();
+      });
+
+      updateCanvasSize();
+      resetStateForRun();
+      drawScene();
+    })();
+  </script>
 </body>
 </html>
